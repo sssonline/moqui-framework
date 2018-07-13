@@ -566,6 +566,7 @@
         </database>
         <database name="mysql8" join-style="ansi-no-parenthesis" offset-style="limit" never-nulls="true"
                   table-engine="InnoDB" character-set="utf8" collate="utf8_general_ci" fk-style="name_fk"
+
                   default-isolation-level="ReadCommitted" use-tm-join="true"
                   default-jdbc-driver="com.mysql.cj.jdbc.Driver"
                   default-xa-ds-class="com.mysql.cj.jdbc.MysqlXADataSource"
@@ -594,7 +595,8 @@
 
             <!-- default max connections for MySQL is 151 -->
             <inline-jdbc pool-maxsize="140"><xa-properties pinGlobalTxToPhysicalConnection="true" autoReconnectForPools="true"
-                                                           useUnicode="true" encoding="UTF-8" serverName="${entity_ds_host}" port="${entity_ds_port?:'3306'}"
+                                                           serverName="${entity_ds_host}" port="${entity_ds_port?:'3306'}"
+                                                           serverTimezone="${database_time_zone ?: default_time_zone}"
                                                            databaseName="${entity_ds_database}" user="${entity_ds_user}" password="${entity_ds_password}"/></inline-jdbc>
         </database>
         <!--
