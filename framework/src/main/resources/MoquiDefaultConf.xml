@@ -597,7 +597,7 @@
             <inline-jdbc pool-maxsize="140"><xa-properties pinGlobalTxToPhysicalConnection="true" autoReconnectForPools="true"
                                                            serverName="${entity_ds_host}" port="${entity_ds_port?:'3306'}"
                                                            serverTimezone="${database_time_zone ?: default_time_zone}"
-                                                           useSSL="false"
+                                                           useSSL="false" allowPublicKeyRetrieval="true"
                                                            databaseName="${entity_ds_database}" user="${entity_ds_user}" password="${entity_ds_password}"/></inline-jdbc>
         </database>
         <!--
