@@ -564,6 +564,39 @@
                     useUnicode="true" encoding="UTF-8" serverName="${entity_ds_host}" port="${entity_ds_port?:'3306'}"
                     databaseName="${entity_ds_database}" user="${entity_ds_user}" password="${entity_ds_password}"/></inline-jdbc>
         </database>
+        <database name="mysql8" join-style="ansi-no-parenthesis" offset-style="limit" never-nulls="true"
+                  table-engine="InnoDB" character-set="utf8" collate="utf8_general_ci" fk-style="name_fk"
+                  default-isolation-level="ReadCommitted" use-tm-join="true"
+                  default-jdbc-driver="com.mysql.cj.jdbc.Driver"
+                  default-xa-ds-class="com.mysql.cj.jdbc.MysqlXADataSource"
+                  default-test-query="SELECT 1">
+            <!--
+                NOTE: to support 4 byte UTF-8 characters use 'utf8mb4' for character-set, and a corresponding collate such as
+                'utf8mb4_col'. Use this character set and collate when creating your database/schema in MySQL before running Moqui,
+                and if set here it will be set on tables that are created as well. For existing databases already set to plain utf8
+                you'll need to run SQL statements on MySQL to change the character set and collate for each table.
+            -->
+
+            <!-- use DATETIME instead of TIMESTAMP so can be null and gets no default value; issue with newer MySQL versions -->
+            <!-- NOTE: DATETIME(3) is supported, and needed, on MySQL 5.7; for earlier versions removed the '(3)' as it has millisecond precision by default -->
+            <database-type type="date-time" sql-type="DATETIME(3)"/>
+
+            <database-type type="number-integer" sql-type="DECIMAL(20,0)"/>
+            <database-type type="number-decimal" sql-type="DECIMAL(26,6)"/>
+            <database-type type="number-float" sql-type="DECIMAL(32,12)"/>
+
+            <database-type type="currency-amount" sql-type="DECIMAL(22,2)"/>
+            <database-type type="currency-precise" sql-type="DECIMAL(23,3)"/>
+
+            <database-type type="text-very-long" sql-type="LONGTEXT"/>
+
+            <database-type type="binary-very-long" sql-type="LONGBLOB"/>
+
+            <!-- default max connections for MySQL is 151 -->
+            <inline-jdbc pool-maxsize="140"><xa-properties pinGlobalTxToPhysicalConnection="true" autoReconnectForPools="true"
+                                                           useUnicode="true" encoding="UTF-8" serverName="${entity_ds_host}" port="${entity_ds_port?:'3306'}"
+                                                           databaseName="${entity_ds_database}" user="${entity_ds_user}" password="${entity_ds_password}"/></inline-jdbc>
+        </database>
         <!--
         * Oracle:
         <datasource group-name="transactional" database-conf-name="oracle" schema-name="MOQUI">
