@@ -566,15 +566,12 @@
         </database>
         <database name="mysql8" join-style="ansi-no-parenthesis" offset-style="limit" never-nulls="true"
                   table-engine="InnoDB" character-set="utf8" collate="utf8_general_ci" fk-style="name_fk"
+                  default-startup-add-missing="true" default-runtime-add-missing="false"
 
                   default-isolation-level="ReadCommitted" use-tm-join="true"
                   default-jdbc-driver="com.mysql.cj.jdbc.Driver"
                   default-xa-ds-class="com.mysql.cj.jdbc.MysqlXADataSource"
                   default-test-query="SELECT 1">
-            <!--
-                NOTE: default-startup-add-missing="true" default-runtime-add-missing="false" can be removed from the database setup,
-                      but it may require set innodb_table_locks=0; in mySQL.
-            -->
 
             <!-- use DATETIME instead of TIMESTAMP so can be null and gets no default value; issue with newer MySQL versions -->
             <!-- NOTE: DATETIME(3) is supported, and needed, on MySQL 5.7; for earlier versions removed the '(3)' as it has millisecond precision by default -->
