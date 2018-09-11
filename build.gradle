@@ -74,6 +74,7 @@ task cleanPlusRuntime(type: Delete) { delete file(plusRuntimeName) }
 task cleanOther(type: Delete) { delete fileTree(dir: '.', includes: ['**/.nbattrs', '**/*~', '**/.#*', '**/.DS_Store', '**/*.rej', '**/*.orig']) }
 
 task cleanAll { dependsOn clean, allCleanTasks, cleanDb, cleanLog, cleanSessions, cleanLoadSave, cleanPlusRuntime }
+task cleanAllButDb { dependsOn clean, allCleanTasks, cleanLog, cleanSessions, cleanLoadSave, cleanPlusRuntime }
 
 // ========== check/update tasks ==========
 
@@ -173,14 +174,18 @@ task run(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
     workingDir = '.'; jvmArgs = ['-server', '-XX:-OmitStackTraceInFastThrow']
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
+    def argList = [warName]
+    if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
     // NOTE: this is a hack, using -jar instead of a class name, and then the first argument is the name of the jar file
-    main = '-jar'; args = [warName]
+    main = '-jar'; args = argList
 }
 task runProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
     workingDir = '.'; jvmArgs = ['-server', '-Xms1024M']
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
-    main = '-jar'; args = [warName]
+    def argList = [warName]
+    if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
+    main = '-jar'; args = argList
 }
 
 task load(type: JavaExec) {
@@ -191,6 +196,7 @@ task load(type: JavaExec) {
     main = '-jar'
     def argList = [warName, 'load']
     if (project.properties.containsKey('types')) argList.add("types=${types}")
+    if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
     args = argList
 }
 task loadProduction(type: JavaExec) {
@@ -201,6 +207,7 @@ task loadProduction(type: JavaExec) {
     def argList = [warName, 'load']
     if (project.properties.containsKey('types')) argList.add("types=${types}")
     else argList.add("types=seed,seed-initial,install")
+    if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
     args = argList
 }
 
