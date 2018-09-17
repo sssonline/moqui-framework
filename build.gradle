@@ -13,7 +13,10 @@
  */
 
 buildscript {
-    repositories { jcenter() }
+    repositories {
+        jcenter()
+        maven { url "http://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
+    }
     dependencies { classpath 'org.ajoberstar:grgit:2.2.1' }
 }
 // Not needed for explicit use, causes problems when not from git repo: plugins { id 'org.ajoberstar.grgit' version 'x.y.z' }
