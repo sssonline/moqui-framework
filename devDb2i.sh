@@ -4,5 +4,5 @@ RE='^[1-9][0-9]*$'
 if [[ $1 =~ $RE && $1 -le 128 ]]; then
   let "MEM = $1 * 1024"
 fi
-#java -server -XX:-OmitStackTraceInFastThrow -Xmx${MEM}m -jar moqui.war conf=conf/MoquiDevConfDb2i.xml
-java -XX:-OmitStackTraceInFastThrow -Xmx${MEM}m -jar moqui.war conf=conf/MoquiDevConfDb2i.xml
+#java -server -XX:-OmitStackTraceInFastThrow -XX:+UseG1GC -Xmx${MEM}m -jar moqui.war conf=conf/MoquiDevConfDb2i.xml
+java -XX:-OmitStackTraceInFastThrow -XX:+UseG1GC -Xmx${MEM}m -jar moqui.war conf=conf/MoquiDevConfDb2i.xml

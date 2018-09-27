@@ -175,7 +175,7 @@ task gitUpstreamAll {
 
 task run(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
-    workingDir = '.'; jvmArgs = ['-XX:-OmitStackTraceInFastThrow']
+    workingDir = '.'; jvmArgs = ['-XX:-OmitStackTraceInFastThrow', '-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
     def argList = [warName]
     if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
@@ -184,7 +184,7 @@ task run(type: JavaExec) {
 }
 task runProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
-    workingDir = '.'; jvmArgs = ['-Xms1024M']
+    workingDir = '.'; jvmArgs = ['-Xms1024M', '-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
     def argList = [warName]
     if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
@@ -194,7 +194,7 @@ task runProduction(type: JavaExec) {
 task load(type: JavaExec) {
     description "Run Moqui to load data; to specify data types use something like: gradle load -Ptypes=seed,seed-initial,install"
     dependsOn checkRuntime, allBuildTasks
-    workingDir = '.'; jvmArgs = []
+    workingDir = '.'; jvmArgs = ['-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
     main = '-jar'
     def argList = [warName, 'load']
@@ -204,7 +204,7 @@ task load(type: JavaExec) {
 }
 task loadProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks
-    workingDir = '.'; jvmArgs = []
+    workingDir = '.'; jvmArgs = ['-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
     main = '-jar'
     def argList = [warName, 'load']
