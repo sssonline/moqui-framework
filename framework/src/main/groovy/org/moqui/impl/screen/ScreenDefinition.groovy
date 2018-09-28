@@ -520,7 +520,8 @@ class ScreenDefinition {
                 ArtifactExecutionInfo.AT_XML_SCREEN, ArtifactExecutionInfo.AUTHZA_VIEW, sri.outputContentType)
         if ("false".equals(screenNode.attribute("track-artifact-hit"))) aei.setTrackArtifactHit(false)
         sri.ec.artifactExecutionFacade.pushInternal(aei, isTargetScreen ?
-                (requireAuthentication == null || requireAuthentication.length() == 0 || "true".equals(requireAuthentication)) : false, true)
+                (requireAuthentication == null || requireAuthentication.length() == 0 || "true".equals(requireAuthentication)) : false,
+                !("true".equals(screenNode.attribute("disable-tarpit"))))
 
         boolean loggedInAnonymous = false
         if ("anonymous-all".equals(requireAuthentication)) {

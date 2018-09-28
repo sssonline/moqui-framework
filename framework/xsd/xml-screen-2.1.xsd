@@ -108,6 +108,9 @@ along with this software (see the LICENSE.md file). If not, see
             <xs:annotation><xs:documentation>If set to false no ArtifactHit or ArtifactHitBin data will be kept for
                 this screen and for any content or transitions under the screen.</xs:documentation></xs:annotation>
         </xs:attribute>
+        <xs:attribute name="disable-tarpit" type="boolean" default="false">
+            <xs:annotation><xs:documentation>If set to true, tarpit restrictions will be disabled for this screen.</xs:documentation></xs:annotation>
+        </xs:attribute>
         <xs:attribute name="history" type="boolean" default="true">
             <xs:annotation><xs:documentation>If set to false this screen will not be saved in the screen/URL history.</xs:documentation></xs:annotation>
         </xs:attribute>
@@ -406,7 +409,7 @@ along with this software (see the LICENSE.md file). If not, see
             next screen path element will be the name of the subscreen of this screen to use.
 
             If there is no additional element in the screen path or the next element is not a valid subscreen-item.name
-            then the default-item will be the active subscreen. 
+            then the default-item will be the active subscreen.
 
             There are four ways to add subscreens to a screen (in order of override):
 
@@ -803,7 +806,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- <xs:element ref="swing"/> -->
         </xs:choice>
     </xs:complexType></xs:element>
-    
+
     <!-- ============== Text Specific Elements =============== -->
     <xs:element name="text"><xs:complexType>
         <xs:simpleContent>
