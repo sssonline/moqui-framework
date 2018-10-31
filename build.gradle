@@ -198,7 +198,7 @@ task gitUpstreamAll {
 
 task run(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
-    workingDir = '.'; jvmArgs = ['-XX:-OmitStackTraceInFastThrow', '-XX:+UseG1GC']
+    workingDir = '.'; jvmArgs = ['-XX:-OmitStackTraceInFastThrow', '-XX:+UseG1GC', '-Djava.awt.headless=true']
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
     def argList = [warName]
     if (project.properties.containsKey('conf')) argList.add("conf=${conf}")
@@ -207,7 +207,7 @@ task run(type: JavaExec) {
 }
 task runProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks, cleanTempDir
-    workingDir = '.'; jvmArgs = ['-Xms1024M', '-XX:+UseG1GC']
+    workingDir = '.'; jvmArgs = ['-Xms1024M', '-XX:+UseG1GC', '-Djava.awt.headless=true']
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
     def argList = [warName]
     if (project.properties.containsKey('conf')) argList.add("conf=${conf}")

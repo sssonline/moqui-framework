@@ -1,0 +1,223 @@
+/* Copyright 2014-2017 Spokane Software Systems, Inc. All Rights Reserved. */
+package org.moqui.impl.webapp
+
+import groovy.transform.CompileStatic
+import org.apache.poi.hssf.util.HSSFColor
+import org.moqui.context.ArtifactAuthorizationException
+import org.moqui.context.ArtifactTarpitException
+import org.moqui.impl.context.ExecutionContextFactoryImpl
+import org.moqui.impl.context.ExecutionContextImpl
+import org.moqui.screen.ScreenRender
+import org.moqui.util.StringUtilities
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+import javax.servlet.ServletException
+import javax.servlet.http.HttpServlet
+import javax.servlet.http.HttpServletRequest
+import javax.servlet.http.HttpServletResponse
+import javax.xml.transform.stream.StreamSource
+
+import groovy.json.JsonSlurperClassic
+
+import java.io.FileOutputStream
+import java.io.IOException
+import org.apache.poi.ss.usermodel.*
+import org.apache.poi.xssf.usermodel.*
+import org.apache.poi.hssf.util.HSSFColor
+
+@CompileStatic
+class MoquiPoiServlet extends HttpServlet {
+    protected final static Logger logger = LoggerFactory.getLogger(MoquiPoiServlet.class)
+
+    MoquiPoiServlet() {
+        super()
+    }
+
+    @Override
+    void doPost(HttpServletRequest request, HttpServletResponse response) { doScreenRequest(request, response) }
+
+    @Override
+    void doGet(HttpServletRequest request, HttpServletResponse response) { doScreenRequest(request, response) }
+
+    void doScreenRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        ExecutionContextFactoryImpl ecfi =
+                (ExecutionContextFactoryImpl) getServletContext().getAttribute("executionContextFactory")
+        String moquiWebappName = getServletContext().getInitParameter("moqui-name")
+
+        if (ecfi == null || moquiWebappName == null) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "System is initializing, try again soon.")
+            return
+        }
+
+        long startTime = System.currentTimeMillis()
+
+        if (logger.traceEnabled) logger.trace("Start request to [${request.getPathInfo()}] at time [${startTime}] in session [${request.session.id}] thread [${Thread.currentThread().id}:${Thread.currentThread().name}]")
+
+        ExecutionContextImpl activeEc = ecfi.activeContext.get()
+        if (activeEc != null) {
+            logger.warn("In MoquiServlet.service there is already an ExecutionContext for user ${activeEc.user.username} (from ${activeEc.forThreadId}:${activeEc.forThreadName}) in this thread (${Thread.currentThread().id}:${Thread.currentThread().name}), destroying")
+            activeEc.destroy()
+        }
+        ExecutionContextImpl ec = ecfi.getEci()
+
+        String jsonText = null
+        try {
+            ec.initWebFacade(moquiWebappName, request, response)
+            ec.web.requestAttributes.put("moquiRequestStartTime", startTime)
+            ArrayList<String> pathInfoList = ec.web.getPathInfoList()
+
+            ScreenRender sr = ec.screen.makeRender().webappName(moquiWebappName).renderMode("json")
+                    .rootScreenFromHost(request.getServerName()).screenPath(pathInfoList)
+            // NOTE: For the time being, can't figure out how to get these square brackets into the ftl file, so have to manually add them here.
+            jsonText = '[' + sr.render() + ']'
+
+            def slurper = new groovy.json.JsonSlurperClassic()
+            def lists = (ArrayList)slurper.parseText(jsonText)
+
+            XSSFWorkbook workbook = new XSSFWorkbook()
+
+            // Styles used throughout
+            byte[] rgb = new byte[3]; rgb[0] = 0; rgb[1] = 0; rgb[2] = (byte)136 // Dark Blue
+            XSSFColor headingColor = new XSSFColor(rgb)
+            XSSFFont headingFont = workbook.createFont()
+            headingFont.setBold(true)
+            headingFont.setColor(headingColor)
+            XSSFCellStyle headingStyle = workbook.createCellStyle()
+            headingStyle.setWrapText(true)
+            headingStyle.setFont(headingFont)
+            headingStyle.setAlignment(HorizontalAlignment.CENTER)
+            headingStyle.setBorderBottom(BorderStyle.THIN)
+
+            XSSFCellStyle dataRightStyle = workbook.createCellStyle()
+            dataRightStyle.setAlignment(HorizontalAlignment.RIGHT)
+
+            for( int i = 0; i < lists.size(); i++ ) {
+                // TODO: If the title is blank, default to a generic title
+                // TODO: Probably skip if there are no columns.
+                def title   = lists[i]["title"].toString().replaceAll(/\s+/, ' ')
+                def columns = (ArrayList)lists[i]["columns"]
+                def data    = (ArrayList)lists[i]["data"]
+
+                // Create a new sheet for this list
+                XSSFSheet sheet = workbook.createSheet(title)
+
+                // Create the column headings
+                XSSFRow headings = sheet.createRow(0)
+
+                for( int c = 0; c < columns.size(); c++ ) {
+                    def colHeading = columns[c].toString()
+
+                    // If the column names are long, try to intelligently wrap them at roughly the middle
+                    def colLen = colHeading.length()
+                    if(colLen > 10 ) {
+                        def midPoint = (int)(colLen/2)
+                        // First space after the mid-point
+                        def firstAfter = colHeading.indexOf(' ', midPoint)
+                        def firstBefore = colHeading.substring(0, midPoint).lastIndexOf(' ')
+                        def splitPoint = -1
+                        if( firstAfter > 0 && firstBefore > 0 ) {
+                            if( (midPoint-firstBefore) < (firstAfter-midPoint) && firstBefore > 2 ) splitPoint = firstBefore
+                            else splitPoint = firstAfter
+                        }
+                        else if( firstAfter > 0 ) splitPoint = firstAfter
+                        else if( firstBefore > 0 ) splitPoint = firstBefore
+
+                        // Avoid splitting "Id"
+                        if( splitPoint > 2 && (colLen-splitPoint) > 3 ) {
+                            colHeading = colHeading.substring(0, splitPoint) + "\n" + colHeading.substring(splitPoint+1)
+                        }
+                    }
+
+
+                    XSSFCell cell = headings.createCell(c)
+                    cell.setCellValue(colHeading)
+                    cell.setCellStyle(headingStyle)
+                }
+                // Freeze the top row for easy scrolling
+                sheet.createFreezePane(0, 1)
+
+                // Write the data
+                if(data) {
+                    // Attempt to identify columns that are all numbers or blank for right alignment
+                    def isNum = []
+                    for( int c = 0; c < columns.size(); c++ ) { isNum.push(true) }
+                    for( int d = 0; d < data.size(); d++ ) {
+                        def rowData = (ArrayList)data[d]
+                        def anyTrue = false
+                        for( int c = 0; c < rowData.size(); c++ ) {
+                            def cell = rowData[c].toString()
+                            isNum[c] = isNum[c] && (cell.replaceAll(',','').isNumber() || cell == "")
+                            anyTrue = anyTrue || isNum[c]
+                        }
+                        if( !anyTrue ) break
+                    }
+                    for( int d = 0; d < data.size(); d++ ) {
+                        XSSFRow curRow = sheet.createRow(d+1)
+                        def rowData = (ArrayList)data[d]
+                        for( int c = 0; c < rowData.size(); c++ ) {
+                            XSSFCell cell = curRow.createCell(c)
+                            def cellVal = rowData[c].toString()
+                            if( isNum[c] ) {
+                                cellVal = cellVal.replaceAll(',','')
+                                cell.setCellStyle(dataRightStyle)
+                                if( cellVal != '' ) {
+                                    cell.setCellValue(cellVal.isInteger() ? cellVal.toInteger() : cellVal.toDouble())
+                                }
+                            }
+                            else {
+                                cell.setCellValue(cellVal)
+                            }
+                        }
+                    }
+                }
+
+                // Autosize the columns
+                for( int c = 0; c < columns.size(); c++ ) {
+                    sheet.autoSizeColumn(c)
+                }
+
+            }
+
+            String contentType = (String) ec.web.requestParameters."contentType" ?: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            response.setContentType(contentType)
+
+            String filename = (ec.web.parameters.get("filename") as String) ?: (ec.web.parameters.get("saveFilename") as String)
+            if (filename) {
+                String utfFilename = StringUtilities.encodeAsciiFilename(filename)
+                response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"; filename*=utf-8''${utfFilename}")
+            } else {
+                response.addHeader("Content-Disposition", "inline")
+            }
+
+            workbook.write(response.getOutputStream())
+
+            if (logger.infoEnabled) logger.info("Finished POI request to ${pathInfoList}, content type ${response.getContentType()} in ${System.currentTimeMillis()-startTime}ms; session ${request.session.id} thread ${Thread.currentThread().id}:${Thread.currentThread().name}")
+        } catch (ArtifactAuthorizationException e) {
+            // SC_UNAUTHORIZED 401 used when authc/login fails, use SC_FORBIDDEN 403 for authz failures
+            // See ScreenRenderImpl.checkWebappSettings for authc and SC_UNAUTHORIZED handling
+            logger.warn((String) "Web Access Forbidden (no authz): " + e.message)
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, e.message)
+        } catch (ArtifactTarpitException e) {
+            logger.warn((String) "Web Too Many Requests (tarpit): " + e.message)
+            if (e.getRetryAfterSeconds()) response.addIntHeader("Retry-After", e.getRetryAfterSeconds())
+            // NOTE: there is no constant on HttpServletResponse for 429; see RFC 6585 for details
+            response.sendError(429, e.message)
+        } catch (ScreenResourceNotFoundException e) {
+            logger.warn((String) "Web Resource Not Found: " + e.message)
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, e.message)
+        } catch (Throwable t) {
+            logger.error("Error transforming POI content:\n${jsonText}", t)
+            if (ec.message.hasError()) {
+                String errorsString = ec.message.errorsString
+                logger.error(errorsString, t)
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorsString)
+            } else {
+                throw t
+            }
+        } finally {
+            // make sure everything is cleaned up
+            ec.destroy()
+        }
+    }
+}
