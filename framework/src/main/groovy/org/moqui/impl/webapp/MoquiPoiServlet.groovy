@@ -89,8 +89,11 @@ class MoquiPoiServlet extends HttpServlet {
             headingStyle.setAlignment(HorizontalAlignment.CENTER)
             headingStyle.setBorderBottom(BorderStyle.THIN)
 
-            XSSFCellStyle dataRightStyle = workbook.createCellStyle()
-            dataRightStyle.setAlignment(HorizontalAlignment.RIGHT)
+            XSSFCellStyle dataNumberStyle = workbook.createCellStyle()
+            dataNumberStyle.setAlignment(HorizontalAlignment.RIGHT)
+            XSSFCellStyle dataCurrencyStyle = workbook.createCellStyle()
+            dataCurrencyStyle.setAlignment(HorizontalAlignment.RIGHT)
+            dataCurrencyStyle.setDataFormat((short)8) // $#,##0.00_);[Red]($#,##0.00)
 
             for( int i = 0; i < lists.size(); i++ ) {
                 // TODO: If the title is blank, default to a generic title
@@ -139,16 +142,29 @@ class MoquiPoiServlet extends HttpServlet {
 
                 // Write the data
                 if(data) {
-                    // Attempt to identify columns that are all numbers or blank for right alignment
+                    // Attempt to identify columns that are all numbers/currency or blank for right alignment and formatting
                     def isNum = []
                     for( int c = 0; c < columns.size(); c++ ) { isNum.push(true) }
+                    // NOTE: I realise this only accounts for USD...I don't care.
+                    //       Also, values are 0 (not currency), 1 (positive currency) or -1 (negative currency)
+                    def isCurrency = []
+                    for( int c = 0; c < columns.size(); c++ ) { isCurrency.push(true) }
+
                     for( int d = 0; d < data.size(); d++ ) {
                         def rowData = (ArrayList)data[d]
                         def anyTrue = false
                         for( int c = 0; c < rowData.size(); c++ ) {
-                            def cell = rowData[c].toString()
-                            isNum[c] = isNum[c] && (cell.replaceAll(',','').isNumber() || cell == "")
-                            anyTrue = anyTrue || isNum[c]
+                            def cell = rowData[c].toString().replaceAll(/[, ]/,'')
+                            isNum[c] = isNum[c] && (cell.isNumber() || cell == "")
+                            // If not a number, check for currency format
+                            if( !isNum[c] ) {
+                                isCurrency[c] = isCurrency[c] &&
+                                                (cell.substring(0, 1) == '$' && cell.substring(1).isNumber() ||
+                                                 (cell.substring(0, 2) == '($' || cell.substring(0, 2) == '$(') &&
+                                                 cell.substring(cell.length()-1) == ')' &&
+                                                 cell.substring(2, cell.length()-1).isNumber())
+                            }
+                            anyTrue = anyTrue || isNum[c] || isCurrency[c]
                         }
                         if( !anyTrue ) break
                     }
@@ -159,10 +175,19 @@ class MoquiPoiServlet extends HttpServlet {
                             XSSFCell cell = curRow.createCell(c)
                             def cellVal = rowData[c].toString()
                             if( isNum[c] ) {
-                                cellVal = cellVal.replaceAll(',','')
-                                cell.setCellStyle(dataRightStyle)
+                                cellVal = cellVal.replaceAll(/[, ]/,'')
+                                cell.setCellStyle(dataNumberStyle)
                                 if( cellVal != '' ) {
                                     cell.setCellValue(cellVal.isInteger() ? cellVal.toInteger() : cellVal.toDouble())
+                                }
+                            }
+                            else if( isCurrency[c] ) {
+                                int sign = (cellVal.indexOf('(') > -1) ? -1 : 1
+                                cellVal = cellVal.replaceAll(/[, \(\)\$]/,'')
+                                cell.setCellStyle(dataCurrencyStyle)
+                                if( cellVal != '' ) {
+                                    cellVal = sign * (cellVal.isInteger() ? cellVal.toInteger() : cellVal.toDouble())
+                                    cell.setCellValue(cellVal)
                                 }
                             }
                             else {
