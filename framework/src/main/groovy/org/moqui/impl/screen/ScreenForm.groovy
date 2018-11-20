@@ -1804,14 +1804,14 @@ class ScreenForm {
             return colFieldNodes
         }
 
-        ArrayList<Integer> getFormListColumnCharWidths(int originalLineWidth) {
+        ArrayList<Integer> getFormListColumnCharWidths(int originalLineWidth, boolean colSeparators = true) {
             int numCols = allColInfo.size()
             ArrayList<Integer> charWidths = new ArrayList<>(numCols)
             for (int i = 0; i < numCols; i++) charWidths.add(null)
             if (originalLineWidth == 0) originalLineWidth = 132
             int lineWidth = originalLineWidth
             // leave room for 1 space between each column
-            lineWidth -= (numCols - 1)
+            if (colSeparators) lineWidth -= (numCols - 1)
 
             // set fixed column widths and get a total of fixed columns, remaining characters to be split among percent width cols
             ArrayList<BigDecimal> percentWidths = new ArrayList<>(numCols)
