@@ -24,7 +24,6 @@ import java.io.FileOutputStream
 import java.io.IOException
 import org.apache.poi.ss.usermodel.*
 import org.apache.poi.xssf.usermodel.*
-import org.apache.poi.hssf.util.HSSFColor
 
 @CompileStatic
 class MoquiPoiServlet extends HttpServlet {
@@ -79,7 +78,7 @@ class MoquiPoiServlet extends HttpServlet {
 
             // Styles used throughout
             byte[] rgb = new byte[3]; rgb[0] = 0; rgb[1] = 0; rgb[2] = (byte)136 // Dark Blue
-            XSSFColor headingColor = new XSSFColor(rgb)
+            XSSFColor headingColor = new XSSFColor(rgb, new DefaultIndexedColorMap())
             XSSFFont headingFont = workbook.createFont()
             headingFont.setBold(true)
             headingFont.setColor(headingColor)
@@ -204,6 +203,7 @@ class MoquiPoiServlet extends HttpServlet {
 
             }
 
+            // Send the file to the client
             String contentType = (String) ec.web.requestParameters."contentType" ?: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             response.setContentType(contentType)
 
