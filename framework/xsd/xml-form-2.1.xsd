@@ -207,6 +207,7 @@ along with this software (see the LICENSE.md file). If not, see
                 for each row.</xs:documentation></xs:annotation>
         </xs:attribute>
         <xs:attribute name="style" type="xs:string"/>
+        <xs:attribute name="height" type="xs:string"/>
         <xs:attribute name="paginate" type="xs:string" default="true">
             <xs:annotation><xs:documentation>Indicate if this form should paginate or not. Defaults to true.</xs:documentation></xs:annotation>
         </xs:attribute>
