@@ -1716,7 +1716,7 @@ class ScreenForm {
                         pageIndex = ef.pageIndex
                         pageSize = ef.pageSize
                         // this can be expensive, only get count if efList size is equal to pageSize (can skip if no paginate needed)
-                        if (efList.size() < pageSize) count = efList.size()
+                        if (efList.size() < pageSize) count = pageIndex * pageSize + efList.size() // Last Page
                         else count = ef.count()
                     }
                     long maxIndex = (new BigDecimal(count-1)).divide(new BigDecimal(pageSize), 0, BigDecimal.ROUND_DOWN).longValue()
