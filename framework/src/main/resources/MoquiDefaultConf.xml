@@ -156,7 +156,6 @@
             <after-startup><actions><log level="info" message="========================== after-startup actions"/></actions></after-login>
             <before-shutdown><actions><log level="info" message="========================== before-shutdown actions"/></actions></before-logout>
             -->
-            <after-login><actions><service-call name="org.moqui.impl.UserServices.run#AfterLoginServices"/></actions></after-login>
 
             <!-- Moqui Session Listener (necessary to handle expired sessions, etc) -->
             <listener class="org.moqui.impl.webapp.MoquiSessionListener"/>

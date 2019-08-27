@@ -14,9 +14,6 @@ along with this software (see the LICENSE.md file). If not, see
 -->
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
 
-    <service verb="run" noun="AfterLoginServices" authenticate="anonymous-all">
-        <actions><!-- Customer actions to be run after login --></actions></service>
-
     <service verb="set" noun="Preference" allow-remote="true">
         <in-parameters>
             <parameter name="preferenceKey" required="true"/>
