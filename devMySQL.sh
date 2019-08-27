@@ -1,5 +1,5 @@
 #! /usr/bin/env bash
-MEM=24576
+MEM=8192
 RE='^[1-9][0-9]*$'
 if [[ $1 =~ $RE && $1 -le 128 ]]; then
   let "MEM = $1 * 1024"
