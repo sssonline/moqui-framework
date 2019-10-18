@@ -39,6 +39,9 @@ https://logging.apache.org/log4j/2.x/manual/layouts.html#PatternLayout
         <Console name="STDOUT" target="SYSTEM_OUT">
             <PatternLayout pattern="%highlight{%d{HH:mm:ss.SSS} %5p %12.12t %38.38c{1.9.1.}} %m%n"/>
         </Console>
+        <!-- Will uncomment once this is fully working:
+        <Sentry name="Sentry" />
+        -->
     </Appenders>
     <Loggers>
         <Logger name="org.apache" level="warn"/>
@@ -61,6 +64,13 @@ https://logging.apache.org/log4j/2.x/manual/layouts.html#PatternLayout
 
         <Logger name="org.moqui" level="info"/>
 
-        <Root level="info"><AppenderRef ref="AsyncLog"/></Root>
+        <Root level="INFO">
+            <AppenderRef ref="AsyncLog"/>
+            <!-- Will uncomment once this is fully working:
+            <AppenderRef ref="Console" />
+            Note that the Sentry logging threshold is overridden to the WARN level
+            <AppenderRef ref="Sentry" level="WARN" />
+            -->
+        </Root>
     </Loggers>
 </Configuration>
