@@ -296,6 +296,16 @@ ${.node}
 
 </#macro>
 
+<#macro try>    try {
+        <#recurse .node/>
+    }<#if .node["catch"]?has_content><#list .node["catch"] as catch> catch (<#if catch["@type"]?has_content>${catch["@type"]}</#if> <#if catch["@value-field"]?has_content>${catch["@value-field"]}</#if>) {
+        <#recurse catch/>
+    }</#list></#if><#if .node["finally"]?has_content> finally {
+        <#recurse .node["finally"][0]/>
+    }</#if>
+
+</#macro>
+
 <#macro while>    while (<#if .node.@condition?has_content>${.node.@condition}</#if><#if .node["@condition"]?has_content && .node["condition"]?has_content> && </#if><#if .node["condition"]?has_content><#recurse .node["condition"][0]/></#if>) {
         <#recurse .node/>
     }
@@ -308,6 +318,9 @@ ${.node}
 <#macro then><#-- do nothing when visiting, only used explicitly inline --></#macro>
 <#macro "else-if"><#-- do nothing when visiting, only used explicitly inline --></#macro>
 <#macro else><#-- do nothing when visiting, only used explicitly inline --></#macro>
+
+<#macro "catch"><#-- do nothing when visiting, only used explicitly inline --></#macro>
+<#macro finally><#-- do nothing when visiting, only used explicitly inline --></#macro>
 
 <#macro or>(<#list .node.children as childNode><#visit childNode/><#if childNode_has_next> || </#if></#list>)</#macro>
 <#macro and>(<#list .node.children as childNode><#visit childNode/><#if childNode_has_next> && </#if></#list>)</#macro>
