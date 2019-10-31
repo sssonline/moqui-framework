@@ -297,7 +297,8 @@ ${.node}
 </#macro>
 
 <#macro try>    try {
-        <#recurse .node/>
+        <#if .node["test"]?has_content>
+        <#recurse .node["test"][0]/></#if>
     }<#if .node["catch"]?has_content><#list .node["catch"] as catch> catch (<#if catch["@type"]?has_content>${catch["@type"]}</#if> <#if catch["@value-field"]?has_content>${catch["@value-field"]}</#if>) {
         <#recurse catch/>
     }</#list></#if><#if .node["finally"]?has_content> finally {
@@ -319,6 +320,7 @@ ${.node}
 <#macro "else-if"><#-- do nothing when visiting, only used explicitly inline --></#macro>
 <#macro else><#-- do nothing when visiting, only used explicitly inline --></#macro>
 
+<#macro "test"><#-- do nothing when visiting, only used explicitly inline --></#macro>
 <#macro "catch"><#-- do nothing when visiting, only used explicitly inline --></#macro>
 <#macro finally><#-- do nothing when visiting, only used explicitly inline --></#macro>
 

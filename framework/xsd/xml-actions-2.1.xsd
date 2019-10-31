@@ -942,6 +942,7 @@ along with this software (see the LICENSE.md file). If not, see
         </xs:complexType>
     </xs:element>
 
+
     <xs:element name="try" substitutionGroup="IfOtherOperations">
         <xs:annotation><xs:documentation>
             The try/catch/finally block allows for safe execution of code that can potentially crash, while allowing
@@ -950,12 +951,20 @@ along with this software (see the LICENSE.md file). If not, see
 
         <xs:complexType>
             <xs:sequence>
-                <xs:group minOccurs="0" maxOccurs="unbounded" ref="AllOperations"/>
+                <xs:element minOccurs="1" maxOccurs="1" ref="test"/>
                 <xs:element minOccurs="0" maxOccurs="unbounded" ref="catch"/>
-                <xs:element minOccurs="0" ref="finally"/>
+                <xs:element minOccurs="0" maxOccurs="1" ref="finally"/>
             </xs:sequence>
         </xs:complexType>
 
+    </xs:element>
+    <xs:element name="test">
+        <xs:annotation><xs:documentation>
+            In a try block, code to execute in anticipation of potential failure.
+        </xs:documentation></xs:annotation>
+        <xs:complexType>
+            <xs:group minOccurs="0" maxOccurs="unbounded" ref="AllOperations"/>
+        </xs:complexType>
     </xs:element>
     <xs:element name="catch">
         <xs:annotation><xs:documentation>
@@ -966,10 +975,10 @@ along with this software (see the LICENSE.md file). If not, see
             <xs:sequence>
                 <xs:group minOccurs="0" maxOccurs="unbounded" ref="AllOperations"/>
             </xs:sequence>
-            <xs:attribute name="type" type="xs:string" use="optional">
+            <xs:attribute name="type" type="xs:string" default="Exception" use="optional">
                 <xs:annotation><xs:documentation>The class of exception to catch.</xs:documentation></xs:annotation>
             </xs:attribute>
-            <xs:attribute name="value-field" type="xs:string" use="optional">
+            <xs:attribute name="value-field" type="xs:string">
                 <xs:annotation><xs:documentation>Variable the exception object is placed in.</xs:documentation></xs:annotation>
             </xs:attribute>
         </xs:complexType>
