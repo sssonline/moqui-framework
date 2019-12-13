@@ -890,6 +890,8 @@ along with this software (see the LICENSE.md file). If not, see
         </xs:sequence>
         <xs:attribute name="allow-empty" type="xs:string" default="false"/>
         <xs:attribute name="allow-multiple" type="xs:string" default="false"/>
+        <xs:attribute name="priority-search" type="xs:string" default="false"><xs:annotation><xs:documentation>
+            If true search will prioritize results in order of matches at the beginning of the string, whole words first, and then substrings.</xs:documentation></xs:annotation></xs:attribute>
         <xs:attribute name="size" type="xs:integer" default="1"/>
         <xs:attribute name="current" default="selected"><xs:simpleType><xs:restriction base="xs:token">
             <xs:enumeration value="first-in-list"/><xs:enumeration value="selected"/></xs:restriction></xs:simpleType></xs:attribute>
