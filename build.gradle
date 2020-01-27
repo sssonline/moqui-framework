@@ -15,7 +15,7 @@
 buildscript {
     repositories {
         jcenter()
-        maven { url "http://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
+        maven { url "https://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
     }
     dependencies {
         classpath 'org.ajoberstar:grgit:2.2.1'

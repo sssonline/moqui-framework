@@ -25,7 +25,7 @@ apply plugin: 'com.github.ben-manes.versions'
 buildscript {
     repositories {
         jcenter()
-        maven { url "http://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
+        maven { url "https://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
         // uncomment to add the Error Prone compiler: maven { url "https://plugins.gradle.org/m2/" }
     }
     dependencies {
@@ -40,8 +40,8 @@ dependencyUpdates.resolutionStrategy = { componentSelection { rules -> rules.all
 
 // NOTE: packages should match group, name, version found at https://bintray.com/bintray/jcenter
 repositories {
-    jcenter() // http://jcenter.bintray.com
-    maven { url "http://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
+    jcenter() // https://jcenter.bintray.com
+    maven { url "https://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
 }
 
 sourceCompatibility = '1.8'
