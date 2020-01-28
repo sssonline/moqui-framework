@@ -157,7 +157,7 @@ class MoquiPoiServlet extends HttpServlet {
                             isNum[c] = isNum[c] && (cell.isNumber() || cell == "")
                             // If not a number, check for currency format
                             if( !isNum[c] ) {
-                                isCurrency[c] = isCurrency[c] &&
+                                isCurrency[c] = isCurrency[c] && cell.length() > 2 &&
                                                 (cell.substring(0, 1) == '$' && cell.substring(1).isNumber() ||
                                                  (cell.substring(0, 2) == '($' || cell.substring(0, 2) == '$(') &&
                                                  cell.substring(cell.length()-1) == ')' &&
