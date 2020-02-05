@@ -48,6 +48,10 @@
     <default-property name="entity_ds_c1_user" value=""/>
     <default-property name="entity_ds_c1_password" value=""/>
 
+    <!-- For processes that create threads for parallel processing of data (e.g. Payroll, etc) limit the maximum number of threads.
+         Setting this value to 0 disables threading entirely. -->
+    <default-property name="max_processing_threads" value="0"/>
+
     <tools empty-db-load="seed,seed-initial,install" worker-queue="65535" worker-pool-core="16" worker-pool-max="24" worker-pool-alive="60">
         <tool-factory class="org.moqui.impl.tools.MCacheToolFactory" init-priority="03" disabled="false"/>
         <!-- Apache Commons JCS, an alternative for distributed caches (cannot be used as local cache as requires Serializable keys/values just like Hazelcast) -->
