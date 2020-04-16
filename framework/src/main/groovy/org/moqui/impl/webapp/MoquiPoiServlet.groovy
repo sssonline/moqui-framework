@@ -106,40 +106,42 @@ class MoquiPoiServlet extends HttpServlet {
                 // Create a new sheet for this list
                 XSSFSheet sheet = workbook.createSheet(title)
 
-                // Create the column headings
-                XSSFRow headings = sheet.createRow(0)
+                if (!omitHeaderRow) {
+                    // Create the column headings
+                    XSSFRow headings = sheet.createRow(0)
 
-                for( int c = 0; c < columns.size(); c++ ) {
-                    def colHeading = columns[c].toString()
+                    for( int c = 0; c < columns.size(); c++ ) {
+                        def colHeading = columns[c].toString()
 
-                    // If the column names are long, try to intelligently wrap them at roughly the middle
-                    def colLen = colHeading.length()
-                    if(colLen > 10 ) {
-                        def midPoint = (int)(colLen/2)
-                        // First space after the mid-point
-                        def firstAfter = colHeading.indexOf(' ', midPoint)
-                        def firstBefore = colHeading.substring(0, midPoint).lastIndexOf(' ')
-                        def splitPoint = -1
-                        if( firstAfter > 0 && firstBefore > 0 ) {
-                            if( (midPoint-firstBefore) < (firstAfter-midPoint) && firstBefore > 2 ) splitPoint = firstBefore
-                            else splitPoint = firstAfter
+                        // If the column names are long, try to intelligently wrap them at roughly the middle
+                        def colLen = colHeading.length()
+                        if(colLen > 10 ) {
+                            def midPoint = (int)(colLen/2)
+                            // First space after the mid-point
+                            def firstAfter = colHeading.indexOf(' ', midPoint)
+                            def firstBefore = colHeading.substring(0, midPoint).lastIndexOf(' ')
+                            def splitPoint = -1
+                            if( firstAfter > 0 && firstBefore > 0 ) {
+                                if( (midPoint-firstBefore) < (firstAfter-midPoint) && firstBefore > 2 ) splitPoint = firstBefore
+                                else splitPoint = firstAfter
+                            }
+                            else if( firstAfter > 0 ) splitPoint = firstAfter
+                            else if( firstBefore > 0 ) splitPoint = firstBefore
+
+                            // Avoid splitting "Id"
+                            if( splitPoint > 2 && (colLen-splitPoint) > 3 ) {
+                                colHeading = colHeading.substring(0, splitPoint) + "\n" + colHeading.substring(splitPoint+1)
+                            }
                         }
-                        else if( firstAfter > 0 ) splitPoint = firstAfter
-                        else if( firstBefore > 0 ) splitPoint = firstBefore
 
-                        // Avoid splitting "Id"
-                        if( splitPoint > 2 && (colLen-splitPoint) > 3 ) {
-                            colHeading = colHeading.substring(0, splitPoint) + "\n" + colHeading.substring(splitPoint+1)
-                        }
+
+                        XSSFCell cell = headings.createCell(c)
+                        cell.setCellValue(colHeading)
+                        cell.setCellStyle(headingStyle)
                     }
-
-
-                    XSSFCell cell = headings.createCell(c)
-                    cell.setCellValue(colHeading)
-                    cell.setCellStyle(headingStyle)
+                    // Freeze the top row for easy scrolling
+                    sheet.createFreezePane(0, 1)
                 }
-                // Freeze the top row for easy scrolling
-                sheet.createFreezePane(0, 1)
 
                 // Write the data
                 if(data) {
@@ -170,7 +172,7 @@ class MoquiPoiServlet extends HttpServlet {
                         if( !anyTrue ) break
                     }
                     for( int d = 0; d < data.size(); d++ ) {
-                        XSSFRow curRow = sheet.createRow(d+1)
+                        XSSFRow curRow = sheet.createRow(d + (omitHeaderRow ? 0 : 1))
                         def rowData = (ArrayList)data[d]
                         for( int c = 0; c < rowData.size(); c++ ) {
                             XSSFCell cell = curRow.createCell(c)
