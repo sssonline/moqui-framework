@@ -71,6 +71,8 @@ class MoquiPoiServlet extends HttpServlet {
             // NOTE: For the time being, can't figure out how to get these square brackets into the ftl file, so have to manually add them here.
             jsonText = '[' + sr.render() + ']'
 
+            def omitHeaderRow = ((ec.web.parameters.get("omitHeaderRow") as String) ?: '') == 'on'
+
             def slurper = new groovy.json.JsonSlurperClassic()
             def lists = (ArrayList)slurper.parseText(jsonText)
 
