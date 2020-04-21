@@ -1,7 +1,8 @@
-mkdir -p ~/src/MoquiBackup/MoquiH2Backup/backup$1
-rm -rf ~/src/MoquiBackup/MoquiH2Backup/backup$1/*
-mkdir -p ~/src/MoquiBackup/MoquiH2Backup/backup$1/db
-cp -R runtime/db/derby ~/src/MoquiBackup/MoquiH2Backup/backup$1/db
-cp -R runtime/db/h2 ~/src/MoquiBackup/MoquiH2Backup/backup$1/db
-cp -R runtime/db/orientdb ~/src/MoquiBackup/MoquiH2Backup/backup$1/db
-cp -R runtime/elasticsearch ~/src/MoquiBackup/MoquiH2Backup/backup$1
+backup_root=~/src/MoquiBackup/MoquiH2Backup
+moqui_root=~/src/moqui
+rm -rf ${backup_root}/backup$1
+mkdir -p ${backup_root}/backup$1/db
+cp -R ${moqui_root}/runtime/db/derby ${backup_root}/backup$1/db
+cp -R ${moqui_root}/runtime/db/h2 ${backup_root}/backup$1/db
+cp -R ${moqui_root}/runtime/db/orientdb ${backup_root}/backup$1/db
+cp -R ${moqui_root}/runtime/elasticsearch ${backup_root}/backup$1
