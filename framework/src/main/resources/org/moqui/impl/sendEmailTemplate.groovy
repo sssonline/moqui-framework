@@ -182,7 +182,7 @@ try {
             }
         } else {
             // not a screen, get straight data with type depending on extension
-            DataSource dataSource = ec.resource.getLocationDataSource((String) emailTemplateAttachment.attachmentLocation)
+            DataSource dataSource = ec.resource.getLocationDataSource(ec.resource.expand((String) emailTemplateAttachment.attachmentLocation, null))
             email.attach(dataSource, (String) emailTemplateAttachment.fileName, "")
         }
     }
@@ -213,7 +213,7 @@ try {
 }
 
 static void renderScreenAttachment(EntityValue emailTemplate, EntityValue emailTemplateAttachment, HtmlEmail email, ExecutionContextImpl ec, Logger logger) {
-    def attachmentRender = ec.screen.makeRender().rootScreen((String) emailTemplateAttachment.attachmentLocation)
+    def attachmentRender = ec.screen.makeRender().rootScreen(ec.resource.expand((String) emailTemplateAttachment.attachmentLocation, null))
             .webappName((String) emailTemplate.webappName).renderMode((String) emailTemplateAttachment.screenRenderMode)
     String attachmentText = attachmentRender.render()
     if (attachmentText == null) return
