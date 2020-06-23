@@ -49,10 +49,10 @@ try {
 
     // combine ccAddresses and bccAddresses
     if (ccAddresses) {
-        if (emailTemplate.ccAddresses) ccAddresses = ccAddresses + "," + emailTemplate.ccAddresses
+        if (emailTemplate.ccAddresses) ccAddresses = ccAddresses + "," + ec.resource.expand((String) emailTemplate.ccAddresses, null)
     } else { ccAddresses = emailTemplate.ccAddresses }
     if (bccAddresses) {
-        if (emailTemplate.bccAddresses) bccAddresses = bccAddresses + "," + emailTemplate.bccAddresses
+        if (emailTemplate.bccAddresses) bccAddresses = bccAddresses + "," + ec.resource.expand((String) emailTemplate.bccAddresses, null)
     } else { bccAddresses = emailTemplate.bccAddresses }
 
     // prepare the fromAddress, fromName, subject; no type or def so that they go into the context for templates
@@ -134,7 +134,7 @@ try {
     // set from, reply to, bounce addresses
     email.setFrom(fromAddress, fromName)
     if (emailTemplate.replyToAddresses) {
-        def rtList = ((String) emailTemplate.replyToAddresses).split(",")
+        def rtList = (ec.resource.expand((String) emailTemplate.replyToAddresses, null)).split(",")
         for (address in rtList) email.addReplyTo(address.trim())
     }
     if (emailTemplate.bounceAddress) email.setBounceAddress((String) emailTemplate.bounceAddress)
