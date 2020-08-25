@@ -737,6 +737,29 @@ public class MNode implements TemplateNodeModel, TemplateSequenceModel, Template
             sb.append("/>");
         }
     }
+    private void addToSbNoChildCdata(StringBuilder sb, int level) {
+        for (int i = 0; i < level; i++) sb.append("    ");
+        sb.append('<').append(nodeName);
+        for (Map.Entry<String, String> entry : attributeMap.entrySet())
+            sb.append(' ').append(entry.getKey()).append("=\"").append(entry.getValue()).append("\"");
+        if ((childText != null && childText.length() > 0) || (childList != null && childList.size() > 0)) {
+            sb.append(">");
+            if (childText != null) sb.append(childText);
+            if (childList != null && childList.size() > 0) {
+                for (MNode child : childList) {
+                    sb.append('\n');
+                    child.addToSbNoChildCdata(sb, level + 1);
+                }
+                if (childList.size() > 1) {
+                    sb.append("\n");
+                    for (int i = 0; i < level; i++) sb.append("    ");
+                }
+            }
+            sb.append("</").append(nodeName).append('>');
+        } else {
+            sb.append("/>");
+        }
+    }
 
     private static String gnodeText(Object nodeObj) {
         if (nodeObj == null) return "";
