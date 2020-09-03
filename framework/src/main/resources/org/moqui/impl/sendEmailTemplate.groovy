@@ -137,7 +137,7 @@ try {
         def rtList = (ec.resource.expand((String) emailTemplate.replyToAddresses, null)).split(",")
         for (address in rtList) email.addReplyTo(address.trim())
     }
-    if (emailTemplate.bounceAddress) email.setBounceAddress((String) emailTemplate.bounceAddress)
+    if (emailTemplate?.bounceAddress) email.setBounceAddress(ec.resource.expand((String) emailTemplate.bounceAddress, null))
 
     // set to, cc, bcc addresses
     def toList = ((String) toAddresses).split(",")
