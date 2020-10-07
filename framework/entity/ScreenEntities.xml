@@ -233,6 +233,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="printContainerHeight" type="text-short"/>
         <field name="printRepeatCount" type="number-integer"/>
         <field name="printRepeatNewPage" type="text-indicator"/>
+        <field name="printDuplicateRight" type="text-short"><description>Duplicates form to the right (does not count towards printRepeatCount)</description></field>
         <relationship type="one" title="DbFormPurpose" related="moqui.basic.Enumeration">
             <key-map field-name="purposeEnumId"/></relationship>
         <seed-data>
