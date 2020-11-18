@@ -968,6 +968,7 @@ along with this software (see the LICENSE.md file). If not, see
         <xs:attribute name="maxlength" type="xs:positiveInteger"/>
         <xs:attribute name="default-value" type="xs:string"/>
         <xs:attribute name="disabled" default="false" type="boolean"/>
+        <xs:attribute name="read-only" default="false" type="boolean"/>
         <xs:attribute name="format" type="xs:string">
             <xs:annotation><xs:documentation>Used to parse and format the output of Number/Time/Date/Timestamp/etc objects.
                 With auto-fields-service will inherit from service parameter.</xs:documentation></xs:annotation>
