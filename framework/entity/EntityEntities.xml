@@ -346,25 +346,4 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="primaryKeyRemoved" type="text-long"/>
     </entity>
 
-    <!-- ========================================================= -->
-    <!-- moqui.entity.import -->
-    <!-- ========================================================= -->
-    <entity entity-name="EntityImportEvent" package="moqui.entity.import">
-        <field name="entityImportEventId" type="id" is-pk="true"/>
-        <field name="entityImportEventTypeEnumId" type="id" not-null="true"/>
-        <field name="importDate" type="date-time" default="ec.user.nowTimestamp"/>
-        <field name="description" type="text-medium"/>
-        <field name="importFilenameMd5" type="text-long"/>
-        <field name="importFilename" type="text-medium"/>
-        <relationship type="one" title="EntityImportType" related="moqui.basic.Enumeration" short-alias="entityImportEventType">
-            <key-map field-name="entityImportEventTypeEnumId"/>
-        </relationship>
-        <index name="ENTITY_IMPORT_MD5" unique="true">
-            <index-field name="importFilenameMd5"/>
-        </index>
-        <seed-data>
-            <moqui.basic.EnumerationType description="Entity Import Event" enumTypeId="EntityImportEvent"/>
-        </seed-data>
-    </entity>
-
 </entities>
