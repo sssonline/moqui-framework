@@ -273,6 +273,21 @@ public class RestClient {
 
     protected HttpClient makeStartHttpClient() {
         SslContextFactory sslContextFactory = new SslContextFactory.Client(true);
+        String[] excludeCipherSuites = {
+                // Exclude weak / insecure ciphers
+                "^.*_(MD5|SHA|SHA1)$",
+                // Exclude ciphers that don't support forward secrecy
+                "^TLS_RSA_.*$",
+                // The following exclusions are present to cleanup known bad cipher
+                // suites that may be accidentally included via include patterns.
+                // The default enabled cipher list in Java will not include these
+                // (but they are available in the supported list).
+                // IBM JSSE2 implementation starts valid suites with SSL_
+                // "^SSL_.*$",
+                "^.*_NULL_.*$",
+                "^.*_anon_.*$"
+        };
+        sslContextFactory.setExcludeCipherSuites(excludeCipherSuites);
         HttpClient httpClient = new HttpClient(sslContextFactory);
         try { httpClient.start(); } catch (Exception e) { throw new BaseException("Error starting HTTP client", e); }
         return httpClient;
