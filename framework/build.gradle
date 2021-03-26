@@ -26,9 +26,8 @@ apply plugin: 'com.github.ben-manes.versions'
 // apply plugin: 'net.ltgt.errorprone'
 buildscript {
     repositories {
-        jcenter()
-        maven { url "https://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
-        // uncomment to add the Error Prone compiler: maven { url "https://plugins.gradle.org/m2/" }
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
     }
     dependencies {
         classpath 'com.github.ben-manes:gradle-versions-plugin:0.21.0'
@@ -43,8 +42,8 @@ dependencyUpdates.resolutionStrategy = { componentSelection { rules -> rules.all
 // NOTE: packages should match group, name, version found at https://bintray.com/bintray/jcenter
 repositories {
     flatDir name: 'localLib', dirs: projectDir.absolutePath + '/lib'
-    jcenter() // https://jcenter.bintray.com
-    maven { url "https://jcenter.bintray.com" } // backup in case https://jcenter.bintray.com does not work via jcenter
+    mavenCentral()
+    maven { url "https://plugins.gradle.org/m2/" }
 }
 
 sourceCompatibility = '1.8'
