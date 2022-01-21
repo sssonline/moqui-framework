@@ -50,6 +50,7 @@ archivesBaseName = 'moqui-util'
 dependencies {
     compileOnly 'com.google.code.findbugs:annotations:3.0.1'
     // JCache, Servlet APIs
+    compile 'com.sun.activation:javax.activation:1.2.0' // CDDL 1.1
     compile 'javax.cache:cache-api:1.0.0'
     compile 'javax.servlet:javax.servlet-api:3.1.0'
     // SLF4J
