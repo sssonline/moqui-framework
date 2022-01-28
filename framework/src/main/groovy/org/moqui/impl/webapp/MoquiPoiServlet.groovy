@@ -103,10 +103,36 @@ class MoquiPoiServlet extends HttpServlet {
                 def columns = (ArrayList)lists[i]["columns"]
                 def data    = (ArrayList)lists[i]["data"]
 
+                // EXPERIMENTAL:
+                // If the number of columns and data do not match, likely it is being caused
+                // by control columns that just have simple buttons in them (edit, delete, etc).
+                // Attempt to intelligently remove them here.
+                if(columns && data && columns.size() != ((ArrayList)data[0]).size()) {
+                    if (logger.infoEnabled) logger.info("Mismatch detected between header size and data size. Attempting to intelligently omit control button columns...");
+                    if (logger.infoEnabled) logger.info("Columns: ${columns.size()}")
+                    if (logger.infoEnabled) logger.info("Data   : ${((ArrayList)data[0]).size()}")
+
+                    def trimmedCols = new ArrayList<String>()
+                    for( int c = 0; c < columns.size(); c++ ) {
+                        def colHeading = columns[c].toString()
+                        if( colHeading != "New" &&
+                            colHeading != "Add" &&
+                            colHeading != "Create" &&
+                            colHeading != "Find" &&
+                            colHeading != "Search" &&
+                            colHeading != "Update" &&
+                            colHeading != "Edit" &&
+                            colHeading != "Delete") {
+                            trimmedCols.add(colHeading)
+                        }
+                    }
+                    columns = trimmedCols
+                }
+
                 // Create a new sheet for this list
                 XSSFSheet sheet = workbook.createSheet(title)
 
-                if (!omitHeaderRow) {
+                if(!omitHeaderRow) {
                     // Create the column headings
                     XSSFRow headings = sheet.createRow(0)
 
