@@ -264,6 +264,10 @@ along with this software (see the LICENSE.md file). If not, see
             <xs:annotation><xs:documentation>Show a button to render the screen as JSON (renderMode=json) and convert to
                 Excel Spreadsheet (xlsx).</xs:documentation></xs:annotation>
         </xs:attribute>
+        <xs:attribute name="show-line-button" type="boolean" default="false">
+            <xs:annotation><xs:documentation>Show a button to print directly to a line printer as selected
+                from the NetworkPrinter table.</xs:documentation></xs:annotation>
+        </xs:attribute>
         <xs:attribute name="show-all-button" type="boolean" default="false">
             <xs:annotation><xs:documentation>Show a button to display all results (pageNoLimit=true), if the pagination header is displayed</xs:documentation></xs:annotation>
         </xs:attribute>
