@@ -80,7 +80,16 @@ class MoquiLineServlet extends HttpServlet {
             def s = new Socket(printerIP, printerPort.toInteger())
 
             s.withStreams { inStream, outStream ->
+                // This causes leading blank lines to be skipped. Printing does not begin until a non-blank
+                // line is encountered, at which point every line (including blanks) is printed.
                 Boolean printing = false
+
+                // If, for whatever reason, it becomes desirable to not include a trailing \r\n
+                // (which is probably needed for line printers, but we're not sure)
+                // then simply change the .each statement to:
+                // lines.eachWithIndex { line, i ->
+                // and then the \r\n can be made conditional like so:
+                // outStream << line + (i == lines.size-1 ? "" : "\r\n")
                 lines.each { line ->
                     if( printing || line != "" ) {
                         printing = true
