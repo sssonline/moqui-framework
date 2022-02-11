@@ -64,8 +64,11 @@ class MoquiLineServlet extends HttpServlet {
             ec.web.requestAttributes.put("moquiRequestStartTime", startTime)
             ArrayList<String> pathInfoList = ec.web.getPathInfoList()
 
-            ScreenRender sr = ec.screen.makeRender().webappName(moquiWebappName).renderMode("line")
-                    .rootScreenFromHost(request.getServerName()).screenPath(pathInfoList)
+            ScreenRender sr = ec.screen.makeRender()
+                                .webappName(moquiWebappName)
+                                .renderMode("line")
+                                .rootScreenFromHost(request.getServerName())
+                                .screenPath(pathInfoList as List<String>)
             screenText = sr.render()
 
             String printerIPAndPort = (ec.web.parameters.get("printerIP") as String)
@@ -115,7 +118,7 @@ class MoquiLineServlet extends HttpServlet {
             logger.warn((String) "Web Resource Not Found: " + e.message)
             response.sendError(HttpServletResponse.SC_NOT_FOUND, e.message)
         } catch (Throwable t) {
-            logger.error("Error transforming POI content:\n${screenText}", t)
+            logger.error("Error transforming Line content:\n${screenText}", t)
             if (ec.message.hasError()) {
                 String errorsString = ec.message.errorsString
                 logger.error(errorsString, t)
