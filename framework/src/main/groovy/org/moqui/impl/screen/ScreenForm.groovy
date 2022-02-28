@@ -1886,50 +1886,52 @@ class ScreenForm {
             int widthForPercentCols = lineWidth - fixedColsWidth
             if (widthForPercentCols < 0) throw new BaseArtifactException("In form ${formName} fixed width columns exceeded total line characters ${originalLineWidth} by ${-widthForPercentCols} characters")
             int percentColsCount = numCols - fixedColsCount
-
-            // scale column percents to 100, fill in missing
-            BigDecimal percentTotal = 0
-            for (int i = 0; i < numCols; i++) {
-                BigDecimal colPercent = (BigDecimal) percentWidths.get(i)
-                if (colPercent == null) {
-                    if (charWidths.get(i) != null) continue
-                    BigDecimal percentWidth = (1 / percentColsCount) * 100
-                    percentWidths.set(i, percentWidth)
-                    percentTotal += percentWidth
-                } else {
-                    percentTotal += colPercent
-                }
-            }
             int percentColsUsed = 0
-            BigDecimal percentScale = 100 / percentTotal
-            for (int i = 0; i < numCols; i++) {
-                BigDecimal colPercent = (BigDecimal) percentWidths.get(i)
-                if (colPercent == null) continue
-                BigDecimal actualPercent = colPercent * percentScale
-                percentWidths.set(i, actualPercent)
-                int percentChars = ((actualPercent / 100.0) * widthForPercentCols).setScale(0, RoundingMode.HALF_EVEN).intValue()
-                charWidths.set(i, percentChars)
-                percentColsUsed += percentChars
-            }
-
-            // adjust for over/underflow
-            if (percentColsUsed != widthForPercentCols) {
-                int diffRemaining = widthForPercentCols - percentColsUsed
-                int diffPerCol = (diffRemaining / percentColsCount).setScale(0, RoundingMode.UP).intValue()
+            if ( percentColsCount > 0 ) {
+                // scale column percents to 100, fill in missing
+                BigDecimal percentTotal = 0
                 for (int i = 0; i < numCols; i++) {
-                    if (percentWidths.get(i) == null) continue
-                    Integer curChars = charWidths.get(i)
-                    int adjustAmount = Math.abs(diffRemaining) > Math.abs(diffPerCol) ? diffPerCol : diffRemaining
-                    int newChars = curChars + adjustAmount
-                    if (newChars > 0) {
-                        charWidths.set(i, newChars)
-                        diffRemaining -= adjustAmount
-                        if (diffRemaining == 0) break
+                    BigDecimal colPercent = (BigDecimal) percentWidths.get(i)
+                    if (colPercent == null) {
+                        if (charWidths.get(i) != null) continue
+                        BigDecimal percentWidth = (1 / percentColsCount) * 100
+                        percentWidths.set(i, percentWidth)
+                        percentTotal += percentWidth
+                    } else {
+                        percentTotal += colPercent
+                    }
+                }
+                percentColsUsed = 0
+                BigDecimal percentScale = 100 / percentTotal
+                for (int i = 0; i < numCols; i++) {
+                    BigDecimal colPercent = (BigDecimal) percentWidths.get(i)
+                    if (colPercent == null) continue
+                    BigDecimal actualPercent = colPercent * percentScale
+                    percentWidths.set(i, actualPercent)
+                    int percentChars = ((actualPercent / 100.0) * widthForPercentCols).setScale(0, RoundingMode.HALF_EVEN).intValue()
+                    charWidths.set(i, percentChars)
+                    percentColsUsed += percentChars
+                }
+
+                // adjust for over/underflow
+                if (percentColsUsed != widthForPercentCols) {
+                    int diffRemaining = widthForPercentCols - percentColsUsed
+                    int diffPerCol = (diffRemaining / percentColsCount).setScale(0, RoundingMode.UP).intValue()
+                    for (int i = 0; i < numCols; i++) {
+                        if (percentWidths.get(i) == null) continue
+                        Integer curChars = charWidths.get(i)
+                        int adjustAmount = Math.abs(diffRemaining) > Math.abs(diffPerCol) ? diffPerCol : diffRemaining
+                        int newChars = curChars + adjustAmount
+                        if (newChars > 0) {
+                            charWidths.set(i, newChars)
+                            diffRemaining -= adjustAmount
+                            if (diffRemaining == 0) break
+                        }
                     }
                 }
             }
 
-            logger.info("Text mode form-list: numCols=${numCols}, percentColsUsed=${percentColsUsed}, widthForPercentCols=${widthForPercentCols}, percentColsCount=${percentColsCount}\npercentWidths: ${percentWidths}\ncharWidths: ${charWidths}")
+            // logger.info("Text mode form-list: numCols=${numCols}, percentColsUsed=${percentColsUsed}, widthForPercentCols=${widthForPercentCols}, percentColsCount=${percentColsCount}\npercentWidths: ${percentWidths}\ncharWidths: ${charWidths}")
             return charWidths
         }
     }
