@@ -493,6 +493,9 @@
             <database-type type="currency-amount" sql-type="DECIMAL(24,4)"/>
             <database-type type="currency-precise" sql-type="DECIMAL(25,5)"/>
 
+            <database-type type="text-very-long" sql-type="CLOB(2147483647)"/>
+            <database-type type="binary-very-long" sql-type="BLOB(2147483647)"/>
+
             <inline-jdbc><xa-properties driverType="4" serverName="${entity_ds_host}" portNumber="${entity_ds_port?:'50000'}"
                     databaseName="${entity_ds_database}" user="${entity_ds_user}" password="${entity_ds_password}"/></inline-jdbc>
         </database>
@@ -508,6 +511,9 @@
             <database-type type="number-float" sql-type="DECIMAL(30,12)"/>
             <database-type type="currency-amount" sql-type="DECIMAL(24,4)"/>
             <database-type type="currency-precise" sql-type="DECIMAL(25,5)"/>
+
+            <database-type type="text-very-long" sql-type="CLOB(2147483647)"/>
+            <database-type type="binary-very-long" sql-type="BLOB(2147483647)"/>
 
             <inline-jdbc><xa-properties serverName="${entity_ds_host}" databaseName="${entity_ds_database}"
                     user="${entity_ds_user}" password="${entity_ds_password}" cursorHold="false" threadUsed="false"/></inline-jdbc>
