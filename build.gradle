@@ -186,11 +186,11 @@ task gitStatusAll {
             logger.lifecycle("\nGit status for ${gitDir} (branch:${curGrgit.branch.current()?.name}, tracking:${curGrgit.branch.current()?.trackingBranch?.name})")
 
             if (curGrgit.remote.list().find({ it.name == 'upstream'})) {
-                def upstreamAhead = curGrgit.log { range curGrgit.resolve.toCommit('refs/remotes/upstream/master'), curGrgit.resolve.toCommit('refs/remotes/origin/master') }
-                if (upstreamAhead) logger.lifecycle("- origin/master ${upstreamAhead.size()} commits ahead of upstream/master")
+                def upstreamAhead = curGrgit.log { range curGrgit.resolve.toCommit("refs/remotes/upstream/${curGrgit.branch.current()?.name}"), curGrgit.resolve.toCommit("refs/remotes/origin/${curGrgit.branch.current()?.name}") }
+                if (upstreamAhead) logger.lifecycle("- origin/${curGrgit.branch.current()?.name} ${upstreamAhead.size()} commits ahead of upstream/${curGrgit.branch.current()?.name}")
             }
-            def unpushed = curGrgit.log { range curGrgit.resolve.toCommit('refs/remotes/origin/master'), curGrgit.resolve.toCommit('HEAD') }
-            if (unpushed) logger.lifecycle("--- ${unpushed.size()} commits unpushed (ahead of origin/master)")
+            def unpushed = curGrgit.log { range curGrgit.resolve.toCommit("refs/remotes/origin/${curGrgit.branch.current()?.name}"), curGrgit.resolve.toCommit('HEAD') }
+            if (unpushed) logger.lifecycle("--- ${unpushed.size()} commits unpushed (ahead of origin/${curGrgit.branch.current()?.name})")
             for (Commit commit in unpushed) logger.lifecycle(" - ${commit.getAbbreviatedId(8)} - ${commit.shortMessage}")
             def curStatus = curGrgit.status()
             if (curStatus.isClean()) logger.lifecycle("* nothing to commit, working directory clean")
