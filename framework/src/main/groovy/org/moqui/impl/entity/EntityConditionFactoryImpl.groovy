@@ -236,7 +236,7 @@ class EntityConditionFactoryImpl implements EntityConditionFactory {
                     // we have a view entity, more complex
                     ArrayList<MNode> aliases = (ArrayList<MNode>) memberFieldAliases.get(fieldName)
                     if (aliases == null || aliases.size() == 0)
-                        throw new EntityException("Tried to filter on field ${fieldName} which is not included in view-entity ${findEd.fullEntityName}")
+                        throw new EntityException("Tried to filter on field ${fieldName} to ${value} which is not included in view-entity ${findEd.fullEntityName}")
 
                     for (int k = 0; k < aliases.size(); k++) {
                         MNode aliasNode = (MNode) aliases.get(k)
