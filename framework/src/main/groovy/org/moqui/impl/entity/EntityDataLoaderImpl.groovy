@@ -26,6 +26,7 @@ import org.moqui.entity.EntityDataLoader
 import org.moqui.entity.EntityException
 import org.moqui.entity.EntityList
 import org.moqui.entity.EntityValue
+import org.moqui.entity.EntityDatasourceFactory
 import org.moqui.impl.context.ExecutionContextImpl
 import org.moqui.impl.service.ServiceCallSyncImpl
 import org.moqui.impl.service.ServiceDefinition
@@ -155,7 +156,53 @@ class EntityDataLoaderImpl implements EntityDataLoader {
         EntityJsonHandler ejh = new EntityJsonHandler(this, lvh)
 
         internalRun(exh, ech, ejh)
+
+        // Initialize all tables and foreign keys if a load location is passed
+        if ( this.locationList ) initDatasourceTables()
+
         return exh.getValuesRead() + ech.getValuesRead() + ejh.getValuesRead()
+    }
+
+    @Override void initDatasourceTables() {
+        // This was originally only for startup add missing, but has utility
+        long currentTime = System.currentTimeMillis()
+
+        Set<String> allConfiguredGroups = new TreeSet<>()
+        for (MNode datasourceNode in efi.getEntityFacadeNode().children("datasource")) {
+            String groupName = datasourceNode.attribute("group-name")
+            allConfiguredGroups.add(groupName)
+        }
+
+        if (allConfiguredGroups.size() > 0) {
+            logger.info("Checking tables for entities in groups ${allConfiguredGroups}")
+            boolean createdTables = false
+            for (String entityName in efi.getAllEntityNames()) {
+                String groupName = efi.getEntityGroupName(entityName) ?: efi.defaultGroupName
+                if (allConfiguredGroups.contains(groupName) ||
+                        (!allConfiguredGroups.contains(groupName) )) {
+                    EntityDatasourceFactory edf = efi.getDatasourceFactory(groupName)
+                    if (edf.checkAndAddTable(entityName)) createdTables = true
+                }
+            }
+            // do second pass to make sure all FKs created
+            if (createdTables) {
+                logger.info("Tables were created, checking FKs for all entities in groups ${allConfiguredGroups}")
+                for (String entityName in efi.getAllEntityNames()) {
+                    String groupName = efi.getEntityGroupName(entityName) ?: efi.defaultGroupName
+                    if (allConfiguredGroups.contains(groupName) ||
+                            (!allConfiguredGroups.contains(groupName) )) {
+                        EntityDatasourceFactory edf = efi.getDatasourceFactory(groupName)
+                        if (edf instanceof EntityDatasourceFactoryImpl) {
+                            EntityDefinition ed = efi.getEntityDefinition(entityName)
+                            if (ed.isViewEntity) continue
+                            efi.getEntityDbMeta().createForeignKeys(ed, true)
+
+                        }
+                    }
+                }
+            }
+            logger.info("Checked tables for all entities in ${(System.currentTimeMillis() - currentTime)/1000} seconds")
+        }
     }
 
     @Override

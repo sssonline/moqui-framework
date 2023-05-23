@@ -112,6 +112,8 @@ public interface EntityDataLoader {
     long load();
     long load(List<String> messageList);
 
+    void initDatasourceTables();
+
     /** Create an EntityList with all of the values from the data file(s).
      *
      * @return EntityList representing a List of EntityValue objects for the values in the XML document(s).
