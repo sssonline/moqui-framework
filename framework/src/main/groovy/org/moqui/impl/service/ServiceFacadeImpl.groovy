@@ -26,6 +26,7 @@ import org.moqui.util.CollectionUtilities
 import org.moqui.util.MNode
 import org.moqui.util.RestClient
 import org.moqui.util.StringUtilities
+import org.moqui.util.SystemBinding
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -97,7 +98,7 @@ class ServiceFacadeImpl implements ServiceFacade {
         }
 
         // setup service job runner
-        long jobRunnerRate = (serviceFacadeNode.attribute("scheduled-job-check-time") ?: "60") as long
+        long jobRunnerRate = (SystemBinding.getPropOrEnv("scheduled_job_check_time") ?: (serviceFacadeNode.attribute("scheduled-job-check-time") ?: "60")) as long
         if (jobRunnerRate > 0L) {
             jobRunner = new ScheduledJobRunner(ecfi)
             // wait 60 seconds before first run to make sure all is loaded and we're past an initial activity burst
