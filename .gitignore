@@ -23,6 +23,9 @@ out
 *.iws
 *.iml
 
+# Obsidian files
+.obsidian
+
 # Eclipse files (and some general ones also used by Eclipse)
 .metadata
 bin
