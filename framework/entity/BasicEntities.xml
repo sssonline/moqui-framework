@@ -565,6 +565,35 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="storeSkipSeen" type="text-indicator"/>
         <field name="mailUsername" type="text-medium"/>
         <field name="mailPassword" type="text-medium" encrypt="true"/>
+
+        <!--
+             Office365: https://www.flowable.com/blog/engineering/office-365-exchange-oauth2-imap-authentication
+             Authentication tokens may be decoded here: https://jwt.ms/
+             The sub on the token represents the authEnterpriseSubObjectId, but ensure it has been added as a principal (via powershell)
+             to link the enterprise version of the application.
+             The following will need run via PowerShell for Office 365:
+             New-ServicePrincipal -AppId "authAppClientId" -ServiceId "authEnterpriseSubObjectId"
+             Set-ServicePrincipal -Identity "authEnterpriseSubObjectId" -DisplayName "pr"
+             Add-MailboxPermission -Identity "email@address.com" -User "authEnterpriseSubObjectId" -AccessRights FullAccess
+
+             If the above permissions have not been added:
+             https://learn.microsoft.com/en-us/answers/questions/1195069/javax-mail-authenticationfailedexception-authentic
+        -->
+        <field name="authMechanisms" type="text-medium"><description>e.g. XOAUTH2</description></field>
+        <!-- Login URL composed as: loginPost authLoginUrl . authTenantId . authLoginUrlSuffix -->
+        <field name="authLoginUrl" type="text-medium"><description>e.g. https://login.microsoftonline.com/</description></field>
+        <field name="authLoginUrlSuffix" type="text-medium"><description>e.g. /oauth2/v2.0/token</description></field>
+        <field name="authScopesUrl" type="text-medium"><description>e.g. https://outlook.office365.com/.default</description></field>
+
+        <field name="authAppClientId" type="text-medium" encrypt="true"/>
+        <field name="authObjectId" type="text-medium" encrypt="true"/>
+        <field name="authTenantId" type="text-medium" encrypt="true"/>
+        <field name="authClientSecretId" type="text-medium" encrypt="true"/>
+        <field name="authClientSecretValue" type="text-medium" encrypt="true"/>
+        <field name="authEnterpriseSubObjectId" type="text-medium" encrypt="true">
+            <description>Ensure IMAP.AccessAsUser.All has been added to the application.</description>
+        </field>
+
         <seed-data>
             <!-- The MOQUI_LOCAL EmailServer is used by SubEthaSmtpToolFactory for the local SMTP server to setup the server, and
                 for use by send#EmailTemplate if this emailServerId is used to send email -->
