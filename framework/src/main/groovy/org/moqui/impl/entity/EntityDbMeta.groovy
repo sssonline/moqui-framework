@@ -119,7 +119,7 @@ class EntityDbMeta {
         if (doCreate) {
             createTable(ed)
             // create explicit and foreign key auto indexes
-            createIndexes(ed)
+            createIndexes(ed, false)
             // create foreign keys to all other tables that exist
             createForeignKeys(ed, false)
         } else {
@@ -129,11 +129,13 @@ class EntityDbMeta {
             for (int i = 0; i < mcsSize; i++) addColumn(ed, (FieldInfo) mcs.get(i))
             // create foreign keys after checking each to see if it already exists
             if (startup) {
+                createIndexes(ed, true)
                 createForeignKeys(ed, true)
             } else {
                 MNode dbNode = efi.getDatabaseNode(ed.getEntityGroupName())
                 String runtimeAddFks = datasourceNode.attribute("runtime-add-fks") ?: "true"
                 if ((!runtimeAddFks && "true".equals(dbNode.attribute("default-runtime-add-fks"))) || "true".equals(runtimeAddFks))
+                    createIndexes(ed, true)
                     createForeignKeys(ed, true)
             }
         }
@@ -364,7 +366,64 @@ class EntityDbMeta {
         if (logger.infoEnabled) logger.info("Added column ${colName} to table ${ed.tableName} for field ${fi.name} of entity ${ed.getFullEntityName()} in group ${groupName}")
     }
 
-    void createIndexes(EntityDefinition ed) {
+//    void createIndexes(EntityDefinition ed) {
+//        if (ed == null) throw new IllegalArgumentException("No EntityDefinition specified, cannot create indexes")
+//        if (ed.isViewEntity) throw new IllegalArgumentException("Cannot create indexes for a view entity")
+//
+//        String groupName = ed.getEntityGroupName()
+//        MNode databaseNode = efi.getDatabaseNode(groupName)
+//
+//        if (databaseNode.attribute("use-indexes") == "false") return
+//
+//        int constraintNameClipLength = (databaseNode.attribute("constraint-name-clip-length")?:"30") as int
+//
+//        // first do index elements
+//        for (MNode indexNode in ed.entityNode.children("index")) {
+//            StringBuilder sql = new StringBuilder("CREATE ")
+//            if (databaseNode.attribute("use-indexes-unique") != "false" && indexNode.attribute("unique") == "true") {
+//                sql.append("UNIQUE ")
+//                if (databaseNode.attribute("use-indexes-unique-where-not-null") == "true") sql.append("WHERE NOT NULL ")
+//            }
+//            sql.append("INDEX ")
+//            if (databaseNode.attribute("use-schema-for-all") == "true") sql.append(ed.getSchemaName() ? ed.getSchemaName() + "." : "")
+//            sql.append(indexNode.attribute("name")).append(" ON ").append(ed.getFullTableName())
+//
+//            sql.append(" (")
+//            boolean isFirst = true
+//            for (MNode indexFieldNode in indexNode.children("index-field")) {
+//                if (isFirst) isFirst = false else sql.append(", ")
+//                sql.append(ed.getColumnName(indexFieldNode.attribute("name")))
+//            }
+//            sql.append(")")
+//
+//            runSqlUpdate(sql, groupName)
+//        }
+//
+//        // do fk auto indexes
+//        if (databaseNode.attribute("use-foreign-key-indexes") == "false") return
+//        for (RelationshipInfo relInfo in ed.getRelationshipsInfo(false)) {
+//            if (relInfo.type != "one") continue
+//
+//            String indexName = makeFkIndexName(ed, relInfo, constraintNameClipLength)
+//            StringBuilder sql = new StringBuilder("CREATE INDEX ")
+//            if (databaseNode.attribute("use-schema-for-all") == "true") sql.append(ed.getSchemaName() ? ed.getSchemaName() + "." : "")
+//            sql.append(indexName).append(" ON ").append(ed.getFullTableName())
+//
+//            sql.append(" (")
+//            Map keyMap = relInfo.keyMap
+//            boolean isFirst = true
+//            for (String fieldName in keyMap.keySet()) {
+//                if (isFirst) isFirst = false else sql.append(", ")
+//                sql.append(ed.getColumnName(fieldName))
+//            }
+//            sql.append(")")
+//
+//            // logger.warn("====== create relationship index [${indexName}] for entity [${ed.getFullEntityName()}]")
+//            runSqlUpdate(sql, groupName)
+//        }
+//    }
+
+    int createIndexes(EntityDefinition ed, boolean checkIdxExists) {
         if (ed == null) throw new IllegalArgumentException("No EntityDefinition specified, cannot create indexes")
         if (ed.isViewEntity) throw new IllegalArgumentException("Cannot create indexes for a view entity")
 
@@ -376,7 +435,16 @@ class EntityDbMeta {
         int constraintNameClipLength = (databaseNode.attribute("constraint-name-clip-length")?:"30") as int
 
         // first do index elements
+        int created = 0
         for (MNode indexNode in ed.entityNode.children("index")) {
+            String indexName = indexNode.attribute('name')
+            if (checkIdxExists) {
+                Boolean idxExists = indexExists(ed, indexName, indexNode.children("index-field").collect {it.attribute('name')})
+                if (idxExists != null && idxExists) {
+                    if (logger.infoEnabled) logger.info("Not creating index ${indexName} for entity ${ed.getFullEntityName()} because it already exists.")
+                    continue
+                }
+            }
             StringBuilder sql = new StringBuilder("CREATE ")
             if (databaseNode.attribute("use-indexes-unique") != "false" && indexNode.attribute("unique") == "true") {
                 sql.append("UNIQUE ")
@@ -394,7 +462,11 @@ class EntityDbMeta {
             }
             sql.append(")")
 
-            runSqlUpdate(sql, groupName)
+            Integer curCreated = runSqlUpdate(sql, groupName)
+            if (curCreated != null) {
+                if (logger.infoEnabled) logger.info("Created index ${indexName} for entity ${ed.getFullEntityName()}")
+                created ++
+            }
         }
 
         // do fk auto indexes
@@ -403,6 +475,13 @@ class EntityDbMeta {
             if (relInfo.type != "one") continue
 
             String indexName = makeFkIndexName(ed, relInfo, constraintNameClipLength)
+            if (checkIdxExists) {
+                Boolean idxExists = indexExists(ed, indexName, relInfo.keyMap.keySet())
+                if (idxExists != null && idxExists) {
+                    if (logger.infoEnabled) logger.info("Not creating index ${indexName} for entity ${ed.getFullEntityName()} because it already exists.")
+                    continue
+                }
+            }
             StringBuilder sql = new StringBuilder("CREATE INDEX ")
             if (databaseNode.attribute("use-schema-for-all") == "true") sql.append(ed.getSchemaName() ? ed.getSchemaName() + "." : "")
             sql.append(indexName).append(" ON ").append(ed.getFullTableName())
@@ -417,8 +496,13 @@ class EntityDbMeta {
             sql.append(")")
 
             // logger.warn("====== create relationship index [${indexName}] for entity [${ed.getFullEntityName()}]")
-            runSqlUpdate(sql, groupName)
+            Integer curCreated = runSqlUpdate(sql, groupName)
+            if (curCreated != null) {
+                if (logger.infoEnabled) logger.info("Created index ${indexName} for entity ${ed.getFullEntityName()}")
+                created ++
+            }
         }
+        return created
     }
 
     static String makeFkIndexName(EntityDefinition ed, RelationshipInfo relInfo, int constraintNameClipLength) {
@@ -476,6 +560,18 @@ class EntityDbMeta {
         }
         return created
     }
+    int createIndexesForExistingTables() {
+        int created = 0
+        for (String en in efi.getAllEntityNames()) {
+            EntityDefinition ed = efi.getEntityDefinition(en)
+            if (ed.isViewEntity) continue
+            if (tableExists(ed)) {
+                int result = createIndexes(ed, true)
+                created += result
+            }
+        }
+        return created
+    }
     int dropAllForeignKeys() {
         int dropped = 0
         for (String en in efi.getAllEntityNames()) {
@@ -490,6 +586,57 @@ class EntityDbMeta {
         return dropped
     }
 
+    Boolean indexExists(EntityDefinition ed, String indexName, Collection<String> indexFields) {
+        String groupName = ed.getEntityGroupName()
+        Connection con = null
+        ResultSet ikSet1 = null
+        ResultSet ikSet2 = null
+        try {
+            con = efi.getConnection(groupName)
+            DatabaseMetaData dbData = con.getMetaData()
+            Set<String> fieldNames = new HashSet(indexFields)
+
+            ikSet1 = dbData.getIndexInfo(null, ed.getSchemaName(), ed.getTableName(), false, true)
+            while (ikSet1.next()) {
+                String idxName = ikSet1.getString("INDEX_NAME")
+                if (idxName.toLowerCase() != indexName.toLowerCase()) continue
+                String idxCol = ikSet1.getString("COLUMN_NAME")
+                for (String fn in fieldNames) {
+                    String fnColName = ed.getColumnName(fn)
+                    if (fnColName.toLowerCase() == idxCol.toLowerCase()) {
+                        fieldNames.remove(fn)
+                        break
+                    }
+                }
+            }
+            if (fieldNames.size() > 0) {
+                // try with lower case table name
+                ikSet2 = dbData.getIndexInfo(null, ed.getSchemaName(), ed.getTableName().toLowerCase(), false, true)
+                while (ikSet2.next()) {
+                    String idxName = ikSet2.getString("INDEX_NAME")
+                    if (idxName.toLowerCase() != indexName.toLowerCase()) continue
+                    String idxCol = ikSet2.getString("COLUMN_NAME")
+                    for (String fn in fieldNames) {
+                        String fnColName = ed.getColumnName(fn)
+                        if (fnColName.toLowerCase() == idxCol.toLowerCase()) {
+                            fieldNames.remove(fn)
+                            break
+                        }
+                    }
+                }
+            }
+
+            // if we found all of the index-field field-names then fieldNames will be empty, and we have a full index
+            return (fieldNames.size() == 0)
+        } catch (Exception e) {
+            logger.error("Exception checking to see if index exists for table ${ed.getTableName()}", e)
+            return null
+        } finally {
+            if (ikSet1 != null && !ikSet1.isClosed()) ikSet1.close()
+            if (ikSet2 != null && !ikSet2.isClosed()) ikSet2.close()
+            if (con != null) con.close()
+        }
+    }
 
     Boolean foreignKeyExists(EntityDefinition ed, RelationshipInfo relInfo) {
         String groupName = ed.getEntityGroupName()

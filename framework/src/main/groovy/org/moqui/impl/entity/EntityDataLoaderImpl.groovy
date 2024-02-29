@@ -163,7 +163,7 @@ class EntityDataLoaderImpl implements EntityDataLoader {
         return exh.getValuesRead() + ech.getValuesRead() + ejh.getValuesRead()
     }
 
-    @Override void initDatasourceTables() {
+    void initDatasourceTables() {
         // This was originally only for startup add missing, but has utility
         long currentTime = System.currentTimeMillis()
 
@@ -195,6 +195,7 @@ class EntityDataLoaderImpl implements EntityDataLoader {
                         if (edf instanceof EntityDatasourceFactoryImpl) {
                             EntityDefinition ed = efi.getEntityDefinition(entityName)
                             if (ed.isViewEntity) continue
+                            efi.getEntityDbMeta().createIndexes(ed, true)
                             efi.getEntityDbMeta().createForeignKeys(ed, true)
 
                         }
