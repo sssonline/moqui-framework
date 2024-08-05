@@ -16,7 +16,7 @@ along with this software (see the LICENSE.md file). If not, see
     <!-- EmailTemplate for password reset email -->
     <moqui.basic.email.EmailTemplate emailTemplateId="PASSWORD_RESET" description="Default Password Reset" emailServerId="SYSTEM"
             emailTypeEnumId="EMT_PWD_RESET" bodyScreenLocation="classpath://screen/PasswordReset.xml" webappName="webroot"
-            fromAddress="" ccAddresses="" bccAddresses="" subject="Password Reset" sendPartial="Y"/>
+            fromAddress="${fromAddress?:'hr@test.com'}" ccAddresses="" bccAddresses="" subject="Password Reset" sendPartial="Y"/>
     <!-- EmailTemplate for general notifications -->
     <moqui.basic.email.EmailTemplate emailTemplateId="NOTIFICATION" description="Default Notification" emailServerId="SYSTEM"
             emailTypeEnumId="EMT_NOTIFICATION" bodyScreenLocation="classpath://screen/NotificationEmail.xml" webappName="webroot"
