@@ -62,7 +62,7 @@ class EntityDataLoaderImpl implements EntityDataLoader {
     Set<String> dataTypes = new HashSet<String>()
     List<String> componentNameList = new LinkedList<String>()
 
-    int transactionTimeout = 1800
+    int transactionTimeout = 7200
     boolean useTryInsert = false
     boolean onlyCreate = false
     boolean dummyFks = false
