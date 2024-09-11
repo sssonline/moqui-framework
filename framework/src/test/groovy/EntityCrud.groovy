@@ -21,6 +21,8 @@ import org.moqui.context.ExecutionContext
 import org.moqui.entity.EntityValue
 import org.moqui.Moqui
 
+import java.sql.Timestamp
+
 class EntityCrud extends Specification {
     @Shared
     ExecutionContext ec
@@ -46,7 +48,9 @@ class EntityCrud extends Specification {
 
     def "create and find TestEntity CRDTST1"() {
         when:
-        ec.entity.makeValue("moqui.test.TestEntity").setAll([testId:"CRDTST1", testMedium:"Test Name"]).create()
+        ec.entity.makeValue("moqui.test.TestEntity")
+                .setAll([testId:"CRDTST1", testMedium:"Test Name", lastUpdatedStamp:ec.user.nowTimestamp])
+                .create()
         EntityValue testEntity = ec.entity.find("moqui.test.TestEntity").condition("testId", "CRDTST1").one()
 
         then:
@@ -127,5 +131,32 @@ class EntityCrud extends Specification {
         enumsBetween.size() == 2
         enumTypeAfter == null
         enumsAfter.size() == 0
+    }
+
+    def "serialize And Deserialize"() {
+        when:
+        Timestamp nowStamp = new Timestamp(System.currentTimeMillis())
+        EntityValue origVal = ec.entity.makeValue("moqui.test.TestEntity").setAll([testId:"AnId", testMedium:"testMediumVal",
+                testNumberInteger:123, testNumberDecimal:12.34, testDateTime:nowStamp])
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream()
+        ObjectOutputStream oos = new ObjectOutputStream(baos)
+        try {
+            oos.writeObject(origVal)
+        } catch (Throwable t) {
+            t.println()
+            t.printStackTrace()
+        }
+        oos.flush()
+
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray())
+        ObjectInputStream ois = new ObjectInputStream(bais)
+        EntityValue deSerVal = (EntityValue) ois.readObject()
+
+        then:
+        deSerVal.testMedium == "testMediumVal"
+        deSerVal.testNumberInteger == 123
+        deSerVal.testNumberDecimal == 12.34
+        deSerVal.testDateTime == nowStamp
     }
 }

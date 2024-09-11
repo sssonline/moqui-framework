@@ -15,6 +15,8 @@ import static org.moqui.util.ObjectUtilities.*
 import static org.moqui.util.CollectionUtilities.*
 import static org.moqui.util.StringUtilities.*
 import java.sql.Timestamp
+import java.sql.Time
+import java.time.*
 // these are in the context by default: ExecutionContext ec, Map<String, Object> context, Map<String, Object> result
 <#visit xmlActionsRoot/>
 
@@ -47,6 +49,7 @@ return;
     if (true) {
         <#if handleResult>def call_service_result = </#if>ec.service.<#if isAsync>async()<#else>sync()</#if><#rt>
             <#t>.name("${.node.@name}")<#if .node["@async"]?if_exists == "distribute">.distribute(true)</#if>
+            <#t><#if !isAsync && .node["@disable-authz"]?if_exists == "true">.disableAuthz()</#if>
             <#t><#if !isAsync && .node["@multi"]?if_exists == "true">.multi(true)</#if><#if !isAsync && .node["@multi"]?if_exists == "parameter">.multi(ec.web?.requestParameters?._isMulti == "true")</#if>
             <#t><#if !isAsync && .node["@transaction"]?has_content><#if .node["@transaction"] == "ignore">.ignoreTransaction(true)<#elseif .node["@transaction"] == "force-new" || .node["@transaction"] == "force-cache">.requireNewTransaction(true)</#if>
             <#t><#if !isAsync && .node["@transaction-timeout"]?has_content>.transactionTimeout(${.node["@transaction-timeout"]})</#if>
@@ -119,7 +122,7 @@ ${.node}
 <#macro "entity-find-one">
     <#assign autoFieldMap = .node["@auto-field-map"]?if_exists>
     if (true) {
-        org.moqui.entity.EntityValue find_one_result = ec.entity.find("${.node["@entity-name"]}")<#if .node["@cache"]?has_content>.useCache(${.node["@cache"]})</#if><#if .node["@for-update"]?has_content>.forUpdate(${.node["@for-update"]})</#if>
+        org.moqui.entity.EntityValue find_one_result = ec.entity.find("${.node["@entity-name"]}")<#if .node["@cache"]?has_content>.useCache(${.node["@cache"]})</#if><#if .node["@for-update"]?has_content>.forUpdate(${.node["@for-update"]})</#if><#if .node["@use-clone"]?has_content>.useClone(${.node["@use-clone"]})</#if>
                 <#if autoFieldMap?has_content><#if autoFieldMap == "true">.condition(context)<#elseif autoFieldMap != "false">.condition(${autoFieldMap})</#if><#elseif !.node["field-map"]?has_content>.condition(context)</#if><#list .node["field-map"] as fieldMap>.condition("${fieldMap["@field-name"]}", <#if fieldMap["@from"]?has_content>${fieldMap["@from"]}<#elseif fieldMap["@value"]?has_content>"""${fieldMap["@value"]}"""<#else>${fieldMap["@field-name"]}</#if>)</#list><#list .node["select-field"] as sf>.selectField("${sf["@field-name"]}")</#list>.one()
         if (${.node["@value-field"]} instanceof Map && !(${.node["@value-field"]} instanceof org.moqui.entity.EntityValue)) { if (find_one_result) ${.node["@value-field"]}.putAll(find_one_result) } else { ${.node["@value-field"]} = find_one_result }
     }
@@ -129,7 +132,10 @@ ${.node}
     <#assign listName = .node["@list"]>
     <#assign doPaginate = .node["search-form-inputs"]?has_content && !(.node["search-form-inputs"][0]["@paginate"]?if_exists == "false")>
     ${listName}_xafind = ec.entity.find("${.node["@entity-name"]}")<#if .node["@cache"]?has_content>.useCache(${.node["@cache"]})</#if><#if .node["@for-update"]?has_content>.forUpdate(${.node["@for-update"]})</#if><#if .node["@distinct"]?has_content>.distinct(${.node["@distinct"]})</#if><#if .node["@use-clone"]?has_content>.useClone(${.node["@use-clone"]})</#if><#if .node["@offset"]?has_content>.offset(${.node["@offset"]})</#if><#if .node["@limit"]?has_content>.limit(${.node["@limit"]})</#if><#list .node["select-field"] as sf>.selectField("${sf["@field-name"]}")</#list><#list .node["order-by"] as ob>.orderBy("${ob["@field-name"]}")</#list>
-            <#if !useCache><#list .node["date-filter"] as df>.condition(<#visit df/>)</#list></#if><#list .node["econdition"] as ecn>.condition(<#visit ecn/>)</#list><#list .node["econditions"] as ecs>.condition(<#visit ecs/>)</#list><#list .node["econdition-object"] as eco>.condition(<#visit eco/>)</#list>
+            <#if !useCache><#list .node["date-filter"] as df>.condition(<#visit df/>)</#list></#if><#list .node["econdition"] as ecn>.condition(<#visit ecn/>)</#list><#list .node["econditions"] as ecs>.condition(<#visit ecs/>)</#list>
+    <#list .node["econdition-object"] as eco><#if eco["@field"]?has_content>
+        if (${eco["@field"]} != null) { ${listName}_xafind.condition(${eco["@field"]}) }
+    </#if></#list>
     <#-- do having-econditions first, if present will disable cached query, used in search-form-inputs -->
     <#if .node["having-econditions"]?has_content>${listName}_xafind<#list .node["having-econditions"][0]?children as havingCond>.havingCondition(<#visit havingCond/>)</#list>
     </#if>
@@ -140,7 +146,7 @@ ${.node}
         <#else>
         Map efSfiDefParms = null
         </#if>
-        <#if sfiNode["@require-parameters"]! == "true">${listName}_xafind.requireSearchFormParameters(true)</#if>
+        <#if sfiNode["@require-parameters"]?has_content>${listName}_xafind.requireSearchFormParameters(ec.resource.expand('''${sfiNode["@require-parameters"]}''', "") == "true")</#if>
         ${listName}_xafind.searchFormMap(${sfiNode["@input-fields-map"]!"ec.context"}, efSfiDefParms, "${sfiNode["@skip-fields"]!("")}", "${sfiNode["@default-order-by"]!("")}", ${sfiNode["@paginate"]!("true")})
     }
     </#if>
@@ -181,15 +187,32 @@ ${.node}
                 else { ${listName}Count = ${listName}_xafind.count() }
             }
         </#if>
-        ${listName}PageMaxIndex = ((BigDecimal) (${listName}Count - 1)).divide(${listName}PageSize ?: (${listName}Count - 1), 0, BigDecimal.ROUND_DOWN) as int
+        ${listName}PageMaxIndex = ((BigDecimal) (${listName}Count - 1)).divide(${listName}PageSize ?: (${listName}Count - 1), 0, java.math.RoundingMode.DOWN) as int
         ${listName}PageRangeLow = ${listName}PageIndex * ${listName}PageSize + 1
         ${listName}PageRangeHigh = (${listName}PageIndex * ${listName}PageSize) + ${listName}PageSize
         if (${listName}PageRangeHigh > ${listName}Count) ${listName}PageRangeHigh = ${listName}Count
     </#if>
 </#macro>
 <#macro "entity-find-count">
-    ${.node["@count-field"]} = ec.entity.find("${.node["@entity-name"]}")<#if .node["@cache"]?has_content>.useCache(${.node["@cache"]})</#if><#if .node["@distinct"]?has_content>.distinct(${.node["@distinct"]})</#if><#list .node["select-field"] as sf>.selectField("${sf["@field-name"]}")</#list>
-            <#list .node["date-filter"] as df>.condition(<#visit df/>)</#list><#list .node["econdition"] as econd>.condition(<#visit econd/>)</#list><#list .node["econditions"] as ecs>.condition(<#visit ecs/>)</#list><#list .node["econdition-object"] as eco>.condition(<#visit eco/>)</#list><#if .node["having-econditions"]?has_content><#list .node["having-econditions"]["*"] as havingCond>.havingCondition(<#visit havingCond/>)</#list></#if>.count()
+    <#if .node["search-form-inputs"]?has_content>
+        <#assign sfiNode = .node["search-form-inputs"][0]>
+        <#if sfiNode["default-parameters"]?has_content><#assign sfiDpNode = sfiNode["default-parameters"][0]>
+            Map efSfiDefParams = [<#list sfiDpNode?keys as dpName>${dpName}:"""${sfiDpNode["@" + dpName]}"""<#if dpName_has_next>, </#if></#list>]
+        <#else>
+            Map efSfiDefParams = null
+        </#if>
+    </#if>
+    ${.node["@count-field"]} = ec.entity.find("${.node["@entity-name"]}")
+        <#t><#if .node["@cache"]?has_content>.useCache(${.node["@cache"]})</#if>
+        <#t><#if .node["@distinct"]?has_content>.distinct(${.node["@distinct"]})</#if>
+        <#t><#if .node["search-form-inputs"]?has_content>.searchFormMap(${"ec.context"}, efSfiDefParams, "${sfiNode["@skip-fields"]!("")}", null, false)</#if>
+        <#t><#list .node["select-field"] as sf>.selectField("${sf["@field-name"]}")</#list>
+        <#t><#list .node["date-filter"] as df>.condition(<#visit df/>)</#list>
+        <#t><#list .node["econdition"] as econd>.condition(<#visit econd/>)</#list>
+        <#t><#list .node["econditions"] as ecs>.condition(<#visit ecs/>)</#list>
+        <#t><#list .node["econdition-object"] as eco>.condition(<#visit eco/>)</#list>
+        <#t><#if .node["having-econditions"]?has_content><#list .node["having-econditions"]["*"] as havingCond>.havingCondition(<#visit havingCond/>)</#list></#if>
+        <#lt>.count()
 </#macro>
 <#-- =================== entity-find sub-elements =================== -->
 <#macro "date-filter">(org.moqui.entity.EntityCondition) ec.entity.conditionFactory.makeConditionDate("${.node["@from-field-name"]!("fromDate")}", "${.node["@thru-field-name"]!("thruDate")}", <#if .node["@valid-date"]?has_content>${.node["@valid-date"]} as java.sql.Timestamp<#else>null</#if>, ${.node["@ignore-if-empty"]!("false")}, "${.node["@ignore"]!"false"}")</#macro>
@@ -229,7 +252,10 @@ ${.node}
     <#if .node["@key"]?has_content>
     if (${.node["@list"]} instanceof Map) {
         ${.node["@entry"]}_index = 0
-        for (def ${.node["@entry"]}Entry in ${.node["@list"]}.entrySet()) {
+        def _${.node["@entry"]}Iterator = ${.node["@list"]}.entrySet().iterator()
+        while (_${.node["@entry"]}Iterator.hasNext()) {
+            def ${.node["@entry"]}Entry = _${.node["@entry"]}Iterator.next()
+            ${.node["@entry"]}_has_next = _${.node["@entry"]}Iterator.hasNext()
             ${.node["@entry"]} = ${.node["@entry"]}Entry.getValue()
             ${.node["@key"]} = ${.node["@entry"]}Entry.getKey()
             <#recurse/>
@@ -237,24 +263,35 @@ ${.node}
         }
     } else if (${.node["@list"]} instanceof Collection<Map.Entry>) {
         ${.node["@entry"]}_index = 0
-        for (def ${.node["@entry"]}Entry in ${.node["@list"]}) {
+        def _${.node["@entry"]}Iterator = ${.node["@list"]}.iterator()
+        while (_${.node["@entry"]}Iterator.hasNext()) {
+            def ${.node["@entry"]}Entry = _${.node["@entry"]}Iterator.next()
+            ${.node["@entry"]}_has_next = _${.node["@entry"]}Iterator.hasNext()
             ${.node["@entry"]} = ${.node["@entry"]}Entry.getValue()
             ${.node["@key"]} = ${.node["@entry"]}Entry.getKey()
             <#recurse/>
             ${.node["@entry"]}_index++
         }
-    } else {
+    } else <#-- note no opening curly brace, will turn into "else if" with if below -->
     </#if>
-        ${.node["@entry"]}_index = 0
-        _${.node["@entry"]}Iterator = ${.node["@list"]}.iterator()
-        while (_${.node["@entry"]}Iterator.hasNext()) {
+    if (true) {
+        int ${.node["@entry"]}_index = 0
+        Iterator _${.node["@entry"]}Iterator = ${.node["@list"]}.iterator()
+        // behave differently for EntityListIterator, avoid using hasNext()
+        boolean ${.node["@entry"]}IsEli = (_${.node["@entry"]}Iterator instanceof org.moqui.entity.EntityListIterator)
+        while (${.node["@entry"]}IsEli || _${.node["@entry"]}Iterator.hasNext()) {
             ${.node["@entry"]} = _${.node["@entry"]}Iterator.next()
-            ${.node["@entry"]}_has_next = _${.node["@entry"]}Iterator.hasNext()
+            if (${.node["@entry"]}IsEli && ${.node["@entry"]} == null) break
+            if (!${.node["@entry"]}IsEli) ${.node["@entry"]}_has_next = _${.node["@entry"]}Iterator.hasNext()
+
+            // begin iterator internal block
             <#recurse/>
+            // end iterator internal block for list ${.node["@list"]}
+
             ${.node["@entry"]}_index++
         }
-        if (${.node["@list"]} instanceof org.moqui.entity.EntityListIterator) ${.node["@list"]}.close()
-    <#if .node["@key"]?has_content>}</#if>
+        if(${.node["@entry"]}IsEli) _${.node["@entry"]}Iterator.close()
+    }
 </#macro>
 <#macro message>
     <#if .node["@error"]?has_content && .node["@error"] == "true">

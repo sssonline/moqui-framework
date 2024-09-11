@@ -20,7 +20,7 @@ import java.util.ListIterator;
  * Entity Cursor List Iterator for Handling Cursored Database Results
  */
 @SuppressWarnings("unused")
-public interface EntityListIterator extends ListIterator<EntityValue> {
+public interface EntityListIterator extends ListIterator<EntityValue>, AutoCloseable {
 
     /** Close the underlying ResultSet and Connection. This must ALWAYS be called when done with an EntityListIterator. */
     void close() throws EntityException;
@@ -63,9 +63,10 @@ public interface EntityListIterator extends ListIterator<EntityValue> {
      *
      * For example, you could use the following to iterate through the results in an EntityListIterator:
      *
-     *      EntityValue nextValue;
-     *      while ((nextValue = (EntityValue) eli.next()) != null) { ... }
-     *
+     * <pre>
+     * EntityValue nextValue;
+     * while ((nextValue = eli.next()) != null) { ... }
+     * </pre>
      */
     @Override boolean hasNext();
 
@@ -79,9 +80,10 @@ public interface EntityListIterator extends ListIterator<EntityValue> {
      *
      * For example, you could use the following to iterate through the results in an EntityListIterator:
      *
-     *      EntityValue nextValue;
-     *      while ((nextValue = (EntityValue) eli.next()) != null) { ... }
-     *
+     * <pre>
+     * EntityValue nextValue;
+     * while ((nextValue = eli.next()) != null) { ... }
+     * </pre>
      */
     @Override EntityValue next();
 

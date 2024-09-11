@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory
 import javax.cache.Cache
 import javax.servlet.http.HttpServletRequest
 import javax.servlet.http.HttpServletResponse
+import java.math.RoundingMode
 
 @CompileStatic
 class RestApi {
@@ -270,9 +271,9 @@ class RestApi {
             }
             if (remainingInParmNames) {
                 if (method in ['post', 'put', 'patch']) {
-                    parameters.add([name:'body', in:'body', required:true, schema:['$ref':"#/definitions/${sd.serviceName}.In".toString()]])
+                    parameters.add([name:'body', in:'body', required:true, schema:['$ref':"#/definitions/${sd.serviceNameNoHash}.In".toString()]])
                     // add a definition for service in parameters
-                    definitionsMap.put("${sd.serviceName}.In".toString(), RestSchemaUtil.getJsonSchemaMapIn(sd))
+                    definitionsMap.put("${sd.serviceNameNoHash}.In".toString(), RestSchemaUtil.getJsonSchemaMapIn(sd))
                 } else {
                     for (String parmName in remainingInParmNames) {
                         MNode parmNode = sd.getInParameter(parmName)
@@ -293,13 +294,13 @@ class RestApi {
 
             // add responses
             Map responses = ["401":[description:"Authentication required"], "403":[description:"Access Forbidden (no authz)"],
-                             "429":[description:"Too Many Requests (tarpit)"], "500":[description:"General Error"]]
+                             "429":[description:"Too Many Requests (tarpit)"], "500":[description:"General Error"]] as Map<String, Object>
             if (sd.getOutParameterNames().size() > 0) {
-                responses.put("200", [description:'Success', schema:['$ref':"#/definitions/${sd.serviceName}.Out".toString()]])
-                definitionsMap.put("${sd.serviceName}.Out".toString(), RestSchemaUtil.getJsonSchemaMapOut(sd))
+                responses.put("200", [description:'Success', schema:['$ref':"#/definitions/${sd.serviceNameNoHash}.Out".toString()]])
+                definitionsMap.put("${sd.serviceNameNoHash}.Out".toString(), RestSchemaUtil.getJsonSchemaMapOut(sd))
             }
 
-            Map curMap = [:]
+            Map curMap = new LinkedHashMap<String, Object>()
             if (swaggerMap.tags && pathNode.fullPathList.size() > 1) curMap.put("tags", [pathNode.fullPathList[1]])
             curMap.putAll([summary:(serviceNode.attribute("displayName") ?: "${sd.verb} ${sd.noun}".toString()),
                            description:serviceNode.first("description")?.text,
@@ -379,7 +380,7 @@ class RestApi {
                     int count = ef.count() as int
                     int pageIndex = ef.getPageIndex()
                     int pageSize = ef.getPageSize()
-                    int pageMaxIndex = ((count - 1) as BigDecimal).divide(pageSize as BigDecimal, 0, BigDecimal.ROUND_DOWN).intValue()
+                    int pageMaxIndex = ((count - 1) as BigDecimal).divide(pageSize as BigDecimal, 0, RoundingMode.DOWN).intValue()
                     int pageRangeLow = pageIndex * pageSize + 1
                     int pageRangeHigh = (pageIndex * pageSize) + pageSize
                     if (pageRangeHigh > count) pageRangeHigh = count
@@ -431,7 +432,7 @@ class RestApi {
             // add responses
             Map responses = ["401":[description:"Authentication required"], "403":[description:"Access Forbidden (no authz)"],
                              "404":[description:"Value Not Found"], "429":[description:"Too Many Requests (tarpit)"],
-                             "500":[description:"General Error"]]
+                             "500":[description:"General Error"]] as Map<String, Object>
 
             boolean addEntityDef = true
             boolean addPkDef = false
@@ -476,7 +477,7 @@ class RestApi {
                 }
             }
 
-            Map curMap = [:]
+            Map curMap = new LinkedHashMap<String, Object>()
             String summary = "${operation} ${ed.entityInfo.internalEntityName}"
             if (masterName) summary = summary + " (master: " + masterName + ")"
             if (swaggerMap.tags && pathNode.fullPathList.size() > 1) curMap.put("tags", [pathNode.fullPathList[1]])
@@ -621,15 +622,19 @@ class RestApi {
         }
 
         RestResult runByMethod(List<String> pathList, ExecutionContext ec) {
+            String method = getCurrentMethod(ec)
+            MethodHandler mh = (MethodHandler) methodMap.get(method)
+            if (mh == null) throw new MethodNotSupportedException("Method ${method} not supported at ${pathList}")
+            return mh.run(pathList, ec)
+        }
+        private String getCurrentMethod(ExecutionContext ec) {
             HttpServletRequest request = ec.web.getRequest()
             String method = request.getMethod().toLowerCase()
             if ("post".equals(method)) {
                 String ovdMethod = request.getHeader("X-HTTP-Method-Override")
                 if (ovdMethod != null && !ovdMethod.isEmpty()) method = ovdMethod.toLowerCase()
             }
-            MethodHandler mh = methodMap.get(method)
-            if (mh == null) throw new MethodNotSupportedException("Method ${method} not supported at ${pathList}")
-            return mh.run(pathList, ec)
+            return method
         }
 
         RestResult visitChildOrRun(List<String> pathList, int pathIndex, ExecutionContextImpl ec) {
@@ -670,6 +675,10 @@ class RestApi {
                         throw new ResourceNotFoundException("Resource ${nextPath} not valid, index ${pathIndex} in path ${pathList}; resources available are ${resourceMap.keySet()}")
                     }
                 } else {
+                    // if there is a child id node and it has allow-extra-path=true then try using it, allow id with extra path to have no extra path
+                    if (idNode != null && idNode.allowExtraPath && methodMap.get(getCurrentMethod(ec)) == null) {
+                        return idNode.visit(pathList, nextPathIndex, ec)
+                    }
                     return runByMethod(pathList, ec)
                 }
             } finally {
@@ -763,13 +772,27 @@ class RestApi {
         }
     }
     static class IdNode extends PathNode {
+        private boolean allowExtraPath = false
         IdNode(MNode node, PathNode parent, ExecutionContextFactoryImpl ecfi) {
             super(node, parent, ecfi, true)
+            allowExtraPath = "true".equals(node.attribute("allow-extra-path"))
         }
         RestResult visit(List<String> pathList, int pathIndex, ExecutionContextImpl ec) {
             // logger.info("Visit id ${name}")
             // set ID value in context
-            ec.context.put(name, pathList[pathIndex])
+            if (allowExtraPath) {
+                // handle allow-extra-path, make a List of this path element plus all after it
+                // path elements remaining to include in this list, including the current element
+                int elementsRemaining = pathList.size() - pathIndex
+                ArrayList<String> pathElements = new ArrayList<>()
+                // note that this may do nothing if pathIndex = pathList.size() (ie no extra path elements)
+                for (int i = pathIndex; i < pathList.size(); i++) pathElements.add(pathList.get(i))
+                ec.context.put(name, pathElements)
+                // add elementsRemaining - 1 (for the current element) to advance pathIndex to the end
+                pathIndex += (elementsRemaining - 1)
+            } else {
+                ec.context.put(name, pathList.get(pathIndex))
+            }
             // visit child or run here
             return visitChildOrRun(pathList, pathIndex, ec)
         }

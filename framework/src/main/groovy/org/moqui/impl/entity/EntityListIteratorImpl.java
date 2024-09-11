@@ -14,10 +14,13 @@
 package org.moqui.impl.entity;
 
 import org.moqui.BaseArtifactException;
+import org.moqui.context.ArtifactExecutionInfo;
 import org.moqui.entity.*;
 import org.moqui.impl.context.TransactionCache;
 import org.moqui.impl.entity.EntityJavaUtil.FindAugmentInfo;
+import org.moqui.impl.entity.condition.EntityConditionImplBase;
 import org.moqui.util.CollectionUtilities;
+import org.moqui.util.LiteStringMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +29,6 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
 
 public class EntityListIteratorImpl implements EntityListIterator {
     protected static final Logger logger = LoggerFactory.getLogger(EntityListIteratorImpl.class);
@@ -40,14 +42,16 @@ public class EntityListIteratorImpl implements EntityListIterator {
     private final EntityDefinition entityDefinition;
     protected final FieldInfo[] fieldInfoArray;
     private final int fieldInfoListSize;
-    private final EntityCondition queryCondition;
+    private final EntityConditionImplBase queryCondition;
     private final CollectionUtilities.MapOrderByComparator orderByComparator;
     /** This is needed to determine if the ResultSet is empty as cheaply as possible. */
     private boolean haveMadeValue = false;
     protected boolean closed = false;
+    private StackTraceElement[] constructStack = null;
+    private final ArrayList<ArtifactExecutionInfo> artifactStack;
 
     public EntityListIteratorImpl(Connection con, ResultSet rs, EntityDefinition entityDefinition, FieldInfo[] fieldInfoArray,
-                                  EntityFacadeImpl efi, TransactionCache txCache, EntityCondition queryCondition, ArrayList<String> obf) {
+            EntityFacadeImpl efi, TransactionCache txCache, EntityConditionImplBase queryCondition, ArrayList<String> obf) {
         this.efi = efi;
         this.con = con;
         this.rs = rs;
@@ -72,6 +76,15 @@ public class EntityListIteratorImpl implements EntityListIterator {
             txcListSize = 0;
             orderByComparator = null;
         }
+
+        // capture the current artifact stack for finalize not closed debugging, has minimal performance impact (still ~0.0038ms per call compared to numbers below)
+        artifactStack = efi.ecfi.getEci().artifactExecutionFacade.getStackArray();
+
+        /* uncomment only if needed temporarily: huge performance impact, ~0.036ms per call with, ~0.0037ms without (~10x difference!)
+        StackTraceElement[] tempStack = Thread.currentThread().getStackTrace();
+        if (tempStack.length > 20) tempStack = java.util.Arrays.copyOfRange(tempStack, 0, 20);
+        constructStack = tempStack;
+         */
     }
 
     @Override public void close() {
@@ -130,19 +143,20 @@ public class EntityListIteratorImpl implements EntityListIterator {
 
     @Override public EntityValue currentEntityValue() { return currentEntityValueBase(); }
     public EntityValueBase currentEntityValueBase() {
-        EntityValueImpl newEntityValue = new EntityValueImpl(entityDefinition, efi);
-        HashMap<String, Object> valueMap = newEntityValue.getValueMap();
         if (txcListIndex >= 0) {
             return findAugmentInfo.valueList.get(txcListIndex);
-        } else {
-            for (int i = 0; i < fieldInfoListSize; i++) {
-                FieldInfo fi = fieldInfoArray[i];
-                if (fi == null) break;
-                fi.getResultSetValue(rs, i + 1, valueMap, efi);
-            }
-            // if txCache in place always put in cache for future reference (onePut handles any stale from DB issues too)
-            if (txCache != null) txCache.onePut(newEntityValue, false);
         }
+
+        EntityValueImpl newEntityValue = new EntityValueImpl(entityDefinition, efi);
+        LiteStringMap<Object> valueMap = newEntityValue.valueMapInternal;
+        for (int i = 0; i < fieldInfoListSize; i++) {
+            FieldInfo fi = fieldInfoArray[i];
+            if (fi == null) break;
+            fi.getResultSetValue(rs, i + 1, valueMap, efi);
+        }
+
+        // if txCache in place always put in cache for future reference (onePut handles any stale from DB issues too)
+        if (txCache != null) txCache.onePut(newEntityValue, false);
         haveMadeValue = true;
 
         return newEntityValue;
@@ -271,6 +285,7 @@ public class EntityListIteratorImpl implements EntityListIterator {
         } catch (SQLException e) {
             throw new EntityException("Error getting all results", e);
         } finally {
+            //TODO: Remove closeAfter with respect to try-with-resource implementation
             if (closeAfter) close();
         }
     }
@@ -366,8 +381,16 @@ public class EntityListIteratorImpl implements EntityListIterator {
     protected void finalize() throws Throwable {
         try {
             if (!closed) {
+                StringBuilder errorSb = new StringBuilder(1000);
+                errorSb.append("EntityListIterator not closed for entity [").append(entityDefinition.getFullEntityName())
+                        .append("], caught in finalize()");
+                if (constructStack != null) for (int i = 0; i < constructStack.length; i++)
+                    errorSb.append("\n").append(constructStack[i].toString());
+                if (artifactStack != null) for (int i = 0; i < artifactStack.size(); i++)
+                    errorSb.append("\n").append(artifactStack.get(i).toBasicString());
+                logger.error(errorSb.toString());
+
                 this.close();
-                logger.error("EntityListIterator not closed for entity [" + entityDefinition.getFullEntityName() + "], caught in finalize()");
             }
         } catch (Exception e) {
             logger.error("Error closing the ResultSet or Connection in finalize EntityListIterator", e);

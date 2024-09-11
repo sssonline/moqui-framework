@@ -13,6 +13,7 @@
  */
 package org.moqui.impl.context
 
+import com.fasterxml.jackson.core.io.JsonStringEncoder
 import com.fasterxml.jackson.databind.JsonNode
 import groovy.transform.CompileStatic
 
@@ -20,19 +21,21 @@ import org.apache.commons.fileupload.FileItem
 import org.apache.commons.fileupload.FileItemFactory
 import org.apache.commons.fileupload.disk.DiskFileItemFactory
 import org.apache.commons.fileupload.servlet.ServletFileUpload
+import org.apache.commons.io.IOUtils
+import org.apache.commons.io.output.StringBuilderWriter
 import org.moqui.context.*
 import org.moqui.context.MessageFacade.MessageInfo
 import org.moqui.entity.EntityNotFoundException
 import org.moqui.entity.EntityValue
 import org.moqui.entity.EntityValueNotFoundException
 import org.moqui.impl.util.SimpleSigner
+import org.moqui.util.MNode
 import org.moqui.util.WebUtilities
 import org.moqui.impl.context.ExecutionContextFactoryImpl.WebappInfo
 import org.moqui.impl.screen.ScreenDefinition
 import org.moqui.impl.screen.ScreenUrlInfo
 import org.moqui.impl.service.RestApi
 import org.moqui.impl.service.ServiceJsonRpcDispatcher
-import org.moqui.impl.service.ServiceXmlRpcDispatcher
 import org.moqui.util.ContextStack
 import org.moqui.resource.ResourceReference
 import org.moqui.util.ObjectUtilities
@@ -46,6 +49,8 @@ import javax.servlet.ServletContext
 import javax.servlet.http.HttpServletRequest
 import javax.servlet.http.HttpServletResponse
 import javax.servlet.http.HttpSession
+import java.nio.charset.StandardCharsets
+import java.sql.Timestamp
 
 /** This class is a facade to easily get information from and about the web context. */
 @CompileStatic
@@ -87,8 +92,11 @@ class WebFacadeImpl implements WebFacade {
         this.request = request
         this.response = response
 
-        // NOTE: the Visit is not setup here but rather in the MoquiEventListener (for init and destroy)
-        request.setAttribute("ec", eci)
+        MNode webappNode = eci.ecfi.getWebappNode(webappMoquiName)
+        boolean uploadExecutableAllow = "true".equals(webappNode.attribute("upload-executable-allow"))
+
+        // NOTE: the Visit is not setup here but rather in the MoquiSessionListener (for init and destroy)
+        // don't set 'ec' in request attributes, not serializable: request.setAttribute("ec", eci)
 
         // get any parameters saved to the session from the last request, and clear that session attribute if there
         savedParameters = (Map<String, Object>) request.session.getAttribute("moqui.saved.parameters")
@@ -119,13 +127,11 @@ class WebFacadeImpl implements WebFacade {
         String contentType = request.getHeader("Content-Type")
         if (ResourceReference.isTextContentType(contentType)) {
             // read the body first to make sure it isn't empty, better support clients that pass a Content-Type but no content (even though they shouldn't)
-            StringBuilder bodyBuilder = new StringBuilder()
             BufferedReader reader = request.getReader()
-            if (reader != null) {
-                String curLine
-                while ((curLine = reader.readLine()) != null) bodyBuilder.append(curLine)
-            }
-            if (bodyBuilder.length() > 0) {
+            StringBuilderWriter bodyBuilder = new StringBuilderWriter()
+            if (reader != null) IOUtils.copyLarge(reader, bodyBuilder)
+
+            if (bodyBuilder.builder.length() > 0) {
                 String bodyString = bodyBuilder.toString()
                 requestBodyText = bodyString
                 multiPartParameters = new HashMap()
@@ -160,6 +166,13 @@ class WebFacadeImpl implements WebFacade {
                 if (item.isFormField()) {
                     addValueToMultipartParameterMap(item.getFieldName(), item.getString("UTF-8"))
                 } else {
+                    if (!uploadExecutableAllow) {
+                        if (WebUtilities.isExecutable(item)) {
+                            logger.warn("Found executable upload file ${item.getName()}")
+                            throw new WebMediaTypeException("Executable file ${item.getName()} upload not allowed")
+                        }
+                    }
+
                     // put the FileItem itself in the Map to be used by the application code
                     addValueToMultipartParameterMap(item.getFieldName(), item)
                     fileUploadList.add(item)
@@ -194,6 +207,7 @@ class WebFacadeImpl implements WebFacade {
             sessionToken = StringUtilities.getRandomString(20)
             session.setAttribute("moqui.session.token", sessionToken)
             request.setAttribute("moqui.session.token.created", "true")
+            response.setHeader("moquiSessionToken", sessionToken)
             response.setHeader("X-CSRF-Token", sessionToken)
         }
     }
@@ -258,16 +272,17 @@ class WebFacadeImpl implements WebFacade {
         }
 
         ScreenUrlInfo.UrlInstance urlInstance = urlInstanceOrig.cloneUrlInstance()
-        // ignore the page index for history
+        // instead of ignoring page index for history (old approach), retain but exclude in history duplicate search
         urlInstance.getParameterMap().remove("pageIndex")
         // logger.warn("======= parameters: ${urlInstance.getParameterMap()}")
-        String urlWithParams = urlInstance.getUrlWithParams()
+        String urlWithAllParams = urlInstanceOrig.getUrlWithParams()
+        String urlWithParamsNoPageIndex = urlInstance.getUrlWithParams()
         String urlNoParams = urlInstance.getUrl()
         // logger.warn("======= urlWithParams: ${urlWithParams}")
 
         // if is the same as last screen skip it
         Map firstItem = screenHistoryList.size() > 0 ? screenHistoryList.get(0) : null
-        if (firstItem != null && firstItem.url == urlWithParams) return
+        if (firstItem != null && firstItem.url == urlWithParamsNoPageIndex) return
 
         String targetMenuName = targetScreen.getDefaultMenuName()
 
@@ -314,11 +329,11 @@ class WebFacadeImpl implements WebFacade {
             Iterator<Map> screenHistoryIter = screenHistoryList.iterator()
             while (screenHistoryIter.hasNext()) {
                 Map screenHistory = screenHistoryIter.next()
-                if (screenHistory.url == urlWithParams) screenHistoryIter.remove()
+                if (screenHistory.urlNoPageIndex == urlWithParamsNoPageIndex) screenHistoryIter.remove()
             }
             // add to history list
-            screenHistoryList.add(0, [name:nameBuilder.toString(), url:urlWithParams, urlNoParams:urlNoParams,
-                    path:urlInstance.path, pathWithParams:urlInstance.pathWithParams,
+            screenHistoryList.add(0, [name:nameBuilder.toString(), url:urlWithAllParams, urlNoParams:urlNoParams,
+                    urlNoPageIndex:urlWithParamsNoPageIndex, path:urlInstance.path, pathWithParams:urlInstance.pathWithParams,
                     image:sui.menuImage, imageType:sui.menuImageType, screenLocation:targetScreen.getLocation()])
             // trim the list if needed; keep 40, whatever uses it may display less
             while (screenHistoryList.size() > 40) screenHistoryList.remove(40)
@@ -430,7 +445,8 @@ class WebFacadeImpl implements WebFacade {
         return withPort ? hostName + ":" + port : hostName
     }
 
-    @Override String getPathInfo() {
+    @Override String getPathInfo() { return getPathInfo(request) }
+    static String getPathInfo(HttpServletRequest request) {
         ArrayList<String> pathList = getPathInfoList(request)
         // as per spec if no extra path info return null
         if (pathList == null) return null
@@ -449,26 +465,25 @@ class WebFacadeImpl implements WebFacade {
         // this uses the application/x-www-form-urlencoded MIME format for screen path segments
         // was: String pathInfo = request.getPathInfo()
         String reqURI = request.getRequestURI()
-        // reqURI should always start with a '/' but make sure then remove to avoid empty leading path segment
-        if (reqURI.charAt(0) == (char) '/') reqURI = reqURI.substring(1)
-        String[] pathArray = reqURI.split("/")
         // exclude servlet path segments
         String servletPath = request.getServletPath()
         // subtract 1 to exclude empty string before leading '/' that will always be there
         int servletPathSize = servletPath.isEmpty() ? 0 : (servletPath.split("/").length - 1)
-        ArrayList<String> pathList = new ArrayList<>()
-        for (int i = servletPathSize; i < pathArray.length; i++) {
-            String pathSegment = (String) pathArray[i]
-            if (pathSegment == null || pathSegment.isEmpty()) continue
-            try { pathSegment = URLDecoder.decode(pathSegment, "UTF-8") }
-            catch (Exception e) { if (logger.isTraceEnabled()) logger.trace("Error decoding screen path segment ${pathSegment}", e) }
-            pathList.add(pathSegment)
-        }
+
+        // exclude context path segments
+        String contextPath = request.getContextPath()
+        int contextPathSize = contextPath.isEmpty() ? 0 : (contextPath.split("/").length - 1)
+
+        ArrayList<String> pathList = StringUtilities.pathStringToList(reqURI, servletPathSize + contextPathSize)
         // logger.warn("pathInfo ${request.getPathInfo()} servletPath ${servletPath} reqURI ${request.getRequestURI()} pathList ${pathList}")
         return pathList
     }
 
     @Override String getRequestBodyText() { return requestBodyText }
+    @Override String getResourceDistinctValue() {
+        return eci.ecfi.initStartHex
+    }
+
     @Override HttpServletResponse getResponse() { return response }
 
     @Override HttpSession getSession() { return request.getSession() }
@@ -488,10 +503,19 @@ class WebFacadeImpl implements WebFacade {
             // logger.warn("Copying attr ${attrEntry.getKey()}:${attrEntry.getValue()}")
         }
         // force a new moqui.session.token
-        session.setAttribute("moqui.session.token", StringUtilities.getRandomString(20))
+        String sessionToken = StringUtilities.getRandomString(20)
+        newSession.setAttribute("moqui.session.token", sessionToken)
         request.setAttribute("moqui.session.token.created", "true")
+        if (response != null) {
+            response.setHeader("moquiSessionToken", sessionToken)
+            response.setHeader("X-CSRF-Token", sessionToken)
+        }
         // remake sessionAttributes to use newSession
         sessionAttributes = new WebUtilities.AttributeContainerMap(new WebUtilities.HttpSessionContainer(newSession))
+
+        // UserFacadeImpl keeps a session reference, update it
+        if (eci.userFacade != null) eci.userFacade.session = newSession
+
         // done
         return newSession
     }
@@ -632,6 +656,23 @@ class WebFacadeImpl implements WebFacade {
     @Override List<MessageInfo> getSavedPublicMessages() { return savedPublicMessages }
     @Override List<String> getSavedErrors() { return savedErrors }
     @Override List<ValidationError> getSavedValidationErrors() { return savedValidationErrors }
+    @Override List<ValidationError> getFieldValidationErrors(String fieldName) {
+        List<ValidationError> errorList = null
+        if (savedValidationErrors != null && savedValidationErrors.size() > 0) {
+            for (ValidationError ve in savedValidationErrors) if (fieldName == null || fieldName.equals(ve.field)) {
+                if (errorList == null) errorList = new ArrayList<ValidationError>(5)
+                errorList.add(ve)
+            }
+        }
+        List<ValidationError> mfErrorList = eci.messageFacade.getValidationErrors()
+        if (mfErrorList != null && mfErrorList.size() > 0) {
+            for (ValidationError ve in mfErrorList) if (fieldName == null || fieldName.equals(ve.field)) {
+                if (errorList == null) errorList = new ArrayList<ValidationError>(5)
+                errorList.add(ve)
+            }
+        }
+        return errorList
+    }
 
     @Override
     void sendJsonResponse(Object responseObj) { sendJsonResponseInternal(responseObj, eci, request, response, requestAttributes) }
@@ -696,9 +737,14 @@ class WebFacadeImpl implements WebFacade {
         }
     }
 
-    void sendJsonError(int statusCode, String errorMessages) {
+    @Override
+    void sendJsonError(int statusCode, String message, Throwable origThrowable) {
+        sendJsonErrorInternal(statusCode, message, origThrowable, response)
+    }
+    static void sendJsonErrorInternal(int statusCode, String message, Throwable origThrowable, HttpServletResponse response) {
+        if ((message == null || message.isEmpty()) && origThrowable != null) message = origThrowable.message
         // NOTE: uses same field name as sendJsonResponseInternal
-        String jsonStr = ContextJavaUtil.jacksonMapper.writeValueAsString([errorCode:statusCode, errors:errorMessages])
+        String jsonStr = ContextJavaUtil.jacksonMapper.writeValueAsString([errorCode:statusCode, errors:message])
         response.setContentType("application/json")
         // NOTE: String.length not correct for byte length
         String charset = response.getCharacterEncoding() ?: "UTF-8"
@@ -738,9 +784,9 @@ class WebFacadeImpl implements WebFacade {
         response.setContentLength(length)
 
         if (!filename) {
-            response.addHeader("Content-Disposition", "inline")
+            response.setHeader("Content-Disposition", "inline")
         } else {
-            response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"; filename*=utf-8''${StringUtilities.encodeAsciiFilename(filename)}")
+            response.setHeader("Content-Disposition", "attachment; filename=\"${filename}\"; filename*=utf-8''${StringUtilities.encodeAsciiFilename(filename)}")
         }
 
         try {
@@ -758,7 +804,7 @@ class WebFacadeImpl implements WebFacade {
     }
 
     @Override void sendResourceResponse(String location) { sendResourceResponseInternal(location, false, eci, response) }
-    void sendResourceResponse(String location, boolean inline) { sendResourceResponseInternal(location, inline, eci, response) }
+    @Override void sendResourceResponse(String location, boolean inline) { sendResourceResponseInternal(location, inline, eci, response) }
     static void sendResourceResponseInternal(String location, boolean inline, ExecutionContextImpl eci, HttpServletResponse response) {
         ResourceReference rr = eci.resource.getLocationReference(location)
         if (rr == null || (rr.supportsExists() && !rr.getExists())) {
@@ -769,16 +815,16 @@ class WebFacadeImpl implements WebFacade {
         String contentType = rr.getContentType()
         if (contentType) response.setContentType(contentType)
         if (inline) {
-            response.addHeader("Content-Disposition", "inline")
+            response.setHeader("Content-Disposition", "inline")
 
             WebappInfo webappInfo = eci.ecfi.getWebappInfo(eci.webImpl?.webappMoquiName)
             if (webappInfo != null) {
                 webappInfo.addHeaders("web-resource-inline", response)
             } else {
-                response.addHeader("Cache-Control", "max-age=86400, must-revalidate, public")
+                response.setHeader("Cache-Control", "max-age=86400, must-revalidate, public")
             }
         } else {
-            response.addHeader("Content-Disposition", "attachment; filename=\"${rr.getFileName()}\"; filename*=utf-8''${StringUtilities.encodeAsciiFilename(rr.getFileName())}")
+            response.setHeader("Content-Disposition", "attachment; filename=\"${rr.getFileName()}\"; filename*=utf-8''${StringUtilities.encodeAsciiFilename(rr.getFileName())}")
         }
         if (contentType == null || contentType.isEmpty() || ResourceReference.isBinaryContentType(contentType)) {
             InputStream is = rr.openStream()
@@ -821,42 +867,69 @@ class WebFacadeImpl implements WebFacade {
             429:"Too Many Requests", 500:"Internal Server Error"]
     @Override
     void sendError(int errorCode, String message, Throwable origThrowable) {
+        sendError(errorCode, message, origThrowable, request, response)
+    }
+
+    static void sendError(int errorCode, String message, Throwable origThrowable, HttpServletRequest request, HttpServletResponse response) {
         if ((message == null || message.isEmpty()) && origThrowable != null) message = origThrowable.message
+        String errorCodeName = errorCodeNames.get(errorCode) ?: ""
+        if (message == null || message.isEmpty()) message = errorCodeName
 
         String acceptHeader = request.getHeader("Accept")
-        if (acceptHeader == null || acceptHeader.isEmpty() || acceptHeader.contains("text/html") ||
-                acceptHeader.contains("text/*") || acceptHeader.contains("*/*")) {
+        if (acceptHeader == null) acceptHeader = ""
+
+        if (acceptHeader.contains("text/html")) {
+            // logger.warn("sendError html ${errorCode} ${message}")
             response.setStatus(errorCode)
             response.setContentType("text/html")
             response.setCharacterEncoding("UTF-8")
-            String errorCodeName = errorCodeNames.get(errorCode) ?: ""
 
             Writer writer = response.getWriter()
             writer.write('<html><head><meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>')
-            writer.write("<title>Error ${errorCode} ${errorCodeName}</title>\n")
+            writer.write("<title>Error ${errorCode} ${errorCodeName}</title>")
             writer.write("</head><body>\n")
-            writer.write("<h2>Error ${errorCode} ${errorCodeName}</h2>")
-            writer.write("<p>Problem accessing ${getPathInfo()}</p>\n")
-            if (message != null && !message.isEmpty()) writer.write("<p>Reason: ${message}</p>\n")
+            writer.write("<h2>Error ${errorCode} ${errorCodeName}</h2>\n")
+            writer.write("<p>Problem accessing ${WebUtilities.encodeHtml(getPathInfo(request))}</p>\n")
+            if (message != null && !message.isEmpty()) writer.write("<p>Reason: ${WebUtilities.encodeHtml(message)}</p>\n")
             writer.write("</body></html>\n")
+            writer.flush()
 
             // NOTE: maybe include throwable info, do we ever want that?
+        } else if (acceptHeader.contains("application/json") || acceptHeader.contains("text/json")) {
+            // logger.warn("sendError json ${errorCode} ${message}")
+            response.setStatus(errorCode)
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
 
-            /* nothing special for JSON for now
-            } else if (acceptHeader.contains("application/json") || acceptHeader.contains("text/json")) {
-                response.setContentType("application/json")
-                response.setCharacterEncoding("UTF-8")
-            */
+            JsonStringEncoder jsonEncoder = JsonStringEncoder.getInstance()
+
+            Writer writer = response.getWriter()
+            writer.write("{'message':'")
+            writer.write(jsonEncoder.quoteAsString(message))
+            writer.write("','errorName':'")
+            writer.write(errorCodeName)
+            writer.write("','error':")
+            writer.write(Integer.toString(errorCode))
+            writer.write(",'path':'")
+            writer.write(jsonEncoder.quoteAsString(getPathInfo(request)))
+            writer.write("'}")
+            writer.flush()
         } else {
-            if (message != null && !message.isEmpty()) {
-                response.sendError(errorCode, message)
-            } else {
-                response.sendError(errorCode)
-            }
+            // logger.warn("sendError default ${errorCode} ${message}")
+            response.setStatus(errorCode)
+            response.setContentType("text/plain")
+            response.setCharacterEncoding("UTF-8")
+
+            Writer writer = response.getWriter()
+            writer.write(Integer.toString(errorCode))
+            writer.write(" ")
+            writer.write(message)
+            writer.write(" ")
+            writer.write(getPathInfo(request))
+            writer.flush()
         }
     }
 
-    @Override void handleXmlRpcServiceCall() { new ServiceXmlRpcDispatcher(eci).dispatch(request, response) }
     @Override void handleJsonRpcServiceCall() { new ServiceJsonRpcDispatcher(eci).dispatch() }
 
     @Override
@@ -865,7 +938,7 @@ class WebFacadeImpl implements WebFacade {
 
         // check for parsing error, send a 400 response
         if (parmStack._requestBodyJsonParseError) {
-            sendJsonError(HttpServletResponse.SC_BAD_REQUEST, (String) parmStack._requestBodyJsonParseError)
+            sendJsonError(HttpServletResponse.SC_BAD_REQUEST, (String) parmStack._requestBodyJsonParseError, null)
             return
         }
 
@@ -874,7 +947,7 @@ class WebFacadeImpl implements WebFacade {
             // if there was a login error there will be a MessageFacade error message
             String errorMessage = eci.message.errorsString
             if (!errorMessage) errorMessage = "Authentication required for entity REST operations"
-            sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, errorMessage)
+            sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, errorMessage, null)
             return
         }
 
@@ -896,7 +969,7 @@ class WebFacadeImpl implements WebFacade {
                     if (!(bodyListObj instanceof Map)) {
                         String errMsg = "If request body JSON is a list/array it must contain only object/map values, found non-map entry of type ${bodyListObj.getClass().getName()} with value: ${bodyListObj}"
                         logger.warn(errMsg)
-                        sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errMsg)
+                        sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errMsg, null)
                         return
                     }
                     // logger.warn("========== REST ${method} ${request.getPathInfo()} ${extraPathNameList}; body list object: ${bodyListObj}")
@@ -907,12 +980,10 @@ class WebFacadeImpl implements WebFacade {
                     parmStack.pop()
                 }
                 response.addIntHeader('X-Run-Time-ms', (System.currentTimeMillis() - startTime) as int)
-                response.addHeader("moquiSessionToken", getSessionToken())
                 sendJsonResponse(responseList)
             } else {
                 Object responseObj = eci.entityFacade.rest(method, extraPathNameList, parmStack, masterNameInPath)
                 response.addIntHeader('X-Run-Time-ms', (System.currentTimeMillis() - startTime) as int)
-                response.addHeader("moquiSessionToken", getSessionToken())
 
                 if (parmStack.xTotalCount != null) response.addIntHeader('X-Total-Count', parmStack.xTotalCount as int)
                 if (parmStack.xPageIndex != null) response.addIntHeader('X-Page-Index', parmStack.xPageIndex as int)
@@ -928,20 +999,20 @@ class WebFacadeImpl implements WebFacade {
         } catch (ArtifactAuthorizationException e) {
             // SC_UNAUTHORIZED 401 used when authc/login fails, use SC_FORBIDDEN 403 for authz failures
             logger.warn("REST Access Forbidden (403 no authz): " + e.message)
-            sendJsonError(HttpServletResponse.SC_FORBIDDEN, e.message)
+            sendJsonError(HttpServletResponse.SC_FORBIDDEN, null, e)
         } catch (ArtifactTarpitException e) {
             logger.warn("REST Too Many Requests (429 tarpit): " + e.message)
             if (e.getRetryAfterSeconds()) response.addIntHeader("Retry-After", e.getRetryAfterSeconds())
             // NOTE: there is no constant on HttpServletResponse for 429; see RFC 6585 for details
-            sendJsonError(429, e.message)
+            sendJsonError(429, null, e)
         } catch (EntityNotFoundException e) {
-            logger.warn((String) "REST Entity Not Found (404): " + e.getMessage(), e)
+            logger.warn((String) "REST Entity Not Found (404): " + e.message, e)
             // send 404 Not Found for entities that don't exist (along with records that don't exist)
-            sendJsonError(HttpServletResponse.SC_NOT_FOUND, e.message)
+            sendJsonError(HttpServletResponse.SC_NOT_FOUND, null, e)
         } catch (EntityValueNotFoundException e) {
-            logger.warn("REST Entity Value Not Found (404): " + e.getMessage())
+            logger.warn("REST Entity Value Not Found (404): " + e.message)
             // record doesn't exist, send 404 Not Found
-            sendJsonError(HttpServletResponse.SC_NOT_FOUND, e.message)
+            sendJsonError(HttpServletResponse.SC_NOT_FOUND, null, e)
         } catch (Throwable t) {
             String errorMessage = t.toString()
             if (eci.message.hasError()) {
@@ -950,7 +1021,7 @@ class WebFacadeImpl implements WebFacade {
                 errorMessage = errorMessage + ' ' + errorsString
             }
             logger.warn((String) "General error in entity REST: " + t.toString(), t)
-            sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorMessage)
+            sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorMessage, null)
         }
     }
 
@@ -958,22 +1029,24 @@ class WebFacadeImpl implements WebFacade {
     void handleServiceRestCall(List<String> extraPathNameList) {
         ContextStack parmStack = (ContextStack) getParameters()
 
+        logger.info("Service REST for ${request.getMethod()} to ${request.getPathInfo()} headers ${request.headerNames.collect()} parameters ${getRequestParameters().keySet()}")
+
         // check for login, etc error messages
         if (eci.message.hasError()) {
             String errorsString = eci.message.errorsString
             if ("true".equals(request.getAttribute("moqui.login.error"))) {
                 logger.warn((String) "Login error in Service REST API: " + errorsString)
-                sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, errorsString)
+                sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, errorsString, null)
             } else {
                 logger.warn((String) "General error in Service REST API: " + errorsString)
-                sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorsString)
+                sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorsString, null)
             }
             return
         }
 
         // check for parsing error, send a 400 response
         if (parmStack._requestBodyJsonParseError) {
-            sendJsonError(HttpServletResponse.SC_BAD_REQUEST, (String) parmStack._requestBodyJsonParseError)
+            sendJsonError(HttpServletResponse.SC_BAD_REQUEST, (String) parmStack._requestBodyJsonParseError, null)
             return
         }
 
@@ -988,7 +1061,7 @@ class WebFacadeImpl implements WebFacade {
                     if (!(bodyListObj instanceof Map)) {
                         String errMsg = "If request body JSON is a list/array it must contain only object/map values, found non-map entry of type ${bodyListObj.getClass().getName()} with value: ${bodyListObj}"
                         logger.warn(errMsg)
-                        sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errMsg)
+                        sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errMsg, null)
                         return
                     }
                     // logger.warn("========== REST ${request.getMethod()} ${request.getPathInfo()} ${extraPathNameList}; body list object: ${bodyListObj}")
@@ -1003,13 +1076,12 @@ class WebFacadeImpl implements WebFacade {
                     parmStack.pop()
                 }
                 response.addIntHeader('X-Run-Time-ms', (System.currentTimeMillis() - startTime) as int)
-                response.addHeader("moquiSessionToken", getSessionToken())
 
                 if (eci.message.hasError()) {
                     // if error return that
                     String errorsString = eci.message.errorsString
                     logger.warn((String) "General error in Service REST API: " + errorsString)
-                    sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorsString)
+                    sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorsString, null)
                 } else {
                     // otherwise send response
                     sendJsonResponse(responseList)
@@ -1019,14 +1091,13 @@ class WebFacadeImpl implements WebFacade {
                 RestApi.RestResult restResult = eci.serviceFacade.restApi.run(extraPathNameList, eci)
                 eci.contextStack.pop()
                 response.addIntHeader('X-Run-Time-ms', (System.currentTimeMillis() - startTime) as int)
-                response.addHeader("moquiSessionToken", getSessionToken())
                 restResult.setHeaders(response)
 
                 if (eci.message.hasError()) {
                     // if error return that
                     String errorsString = eci.message.errorsString
                     logger.warn((String) "Error message from Service REST API (400): " + errorsString)
-                    sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errorsString)
+                    sendJsonError(HttpServletResponse.SC_BAD_REQUEST, errorsString, null)
                 } else {
                     // NOTE: This will always respond with 200 OK, consider using 201 Created (for successful POST, create PUT)
                     //     and 204 No Content (for DELETE and other when no content is returned)
@@ -1035,27 +1106,27 @@ class WebFacadeImpl implements WebFacade {
             }
         } catch (AuthenticationRequiredException e) {
             logger.warn("REST Unauthorized (401 no authc): " + e.message)
-            sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, e.message)
+            sendJsonError(HttpServletResponse.SC_UNAUTHORIZED, null, e)
         } catch (ArtifactAuthorizationException e) {
             // SC_UNAUTHORIZED 401 used when authc/login fails, use SC_FORBIDDEN 403 for authz failures
             logger.warn("REST Access Forbidden (403 no authz): " + e.message)
-            sendJsonError(HttpServletResponse.SC_FORBIDDEN, e.message)
+            sendJsonError(HttpServletResponse.SC_FORBIDDEN, null, e)
         } catch (ArtifactTarpitException e) {
             logger.warn("REST Too Many Requests (429 tarpit): " + e.message)
             if (e.getRetryAfterSeconds()) response.addIntHeader("Retry-After", e.getRetryAfterSeconds())
             // NOTE: there is no constant on HttpServletResponse for 429; see RFC 6585 for details
-            sendJsonError(429, e.message)
+            sendJsonError(429, null, e)
         } catch (RestApi.ResourceNotFoundException e) {
-            logger.warn((String) "REST Resource Not Found (404): " + e.getMessage())
+            logger.warn((String) "REST Resource Not Found (404): " + e.message)
             // send 404 Not Found for resources/paths that don't exist (along with records that don't exist)
-            sendJsonError(HttpServletResponse.SC_NOT_FOUND, e.message)
+            sendJsonError(HttpServletResponse.SC_NOT_FOUND, null, e)
         } catch (RestApi.MethodNotSupportedException e) {
-            logger.warn((String) "REST Method Not Supported (405): " + e.getMessage())
-            sendJsonError(HttpServletResponse.SC_METHOD_NOT_ALLOWED, e.message)
+            logger.warn((String) "REST Method Not Supported (405): " + e.message)
+            sendJsonError(HttpServletResponse.SC_METHOD_NOT_ALLOWED, null, e)
         } catch (EntityValueNotFoundException e) {
-            logger.warn("REST Entity Value Not Found (404): " + e.getMessage())
+            logger.warn("REST Entity Value Not Found (404): " + e.message)
             // record doesn't exist, send 404 Not Found
-            sendJsonError(HttpServletResponse.SC_NOT_FOUND, e.message)
+            sendJsonError(HttpServletResponse.SC_NOT_FOUND, null, e)
         } catch (Throwable t) {
             String errorMessage = t.toString()
             if (eci.message.hasError()) {
@@ -1064,7 +1135,7 @@ class WebFacadeImpl implements WebFacade {
                 errorMessage = errorMessage + ' ' + errorsString
             }
             logger.warn((String) "Error thrown in Service REST API (500): " + t.toString(), t)
-            sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorMessage)
+            sendJsonError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorMessage, null)
         }
     }
 
@@ -1143,6 +1214,70 @@ class WebFacadeImpl implements WebFacade {
 
                 // login anonymous if not logged in
                 eci.userFacade.loginAnonymousIfNoUser()
+            } else if ("SmatHmacSha256Timestamp".equals(messageAuthEnumId)) {
+                // validate HMAC value from authHeaderName HTTP header using sharedSecret and messageText
+                String authHeaderName = (String) systemMessageRemote.authHeaderName
+                String sharedSecret = (String) systemMessageRemote.sharedSecret
+
+                String headerValue = request.getHeader(authHeaderName)
+                if (!headerValue) {
+                    logger.warn("System message receive HMAC verify no header ${authHeaderName} value found, for remote ${systemMessageRemoteId}")
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "No HMAC header ${authHeaderName} found for remote system ${systemMessageRemoteId}")
+                    return
+                }
+
+                // This assumes a header format like
+                // Example-Signature-Header:
+                //t=1492774577,
+                //v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+                // We’ve added newlines for clarity, but a realExample-Signature-Header is on a single line.
+                String timestamp = null;
+                String incomingSignature = null;
+                String[] headerValueList = headerValue.split(",") // split on comma
+                for (String headerValueItem : headerValueList) {
+                    String key = headerValueItem.split("=")[0].trim()
+                    if ("t".equals(key))
+                        timestamp = headerValueItem.split("=")[1].trim()
+                    else if ("v1".equals(key))
+                        incomingSignature = headerValueItem.split("=")[1].trim()
+                }
+
+                // This also assumes that the signature is generated from the following concatenated strings:
+                // Timestamp in the header
+                // The character .
+                // The text body of the request
+                String signatureTextToVerify = timestamp + "." + messageText
+
+                Mac hmac = Mac.getInstance("HmacSHA256")
+                hmac.init(new SecretKeySpec(sharedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
+                // NOTE: if this fails try with "ISO-8859-1"
+                byte[] hash = hmac.doFinal(signatureTextToVerify.getBytes(StandardCharsets.UTF_8));
+                String signature = ""
+                for (byte b : hash) {
+                    // Came from https://github.com/stripe/stripe-java/blob/3686feb8f2067878b7bb4619f931580a3d31bf4f/src/main/java/com/stripe/net/Webhook.java#L187
+                    signature += Integer.toString((b & 0xff) + 0x100, 16).substring(1);
+                }
+
+                if (incomingSignature != signature) {
+                    logger.warn("System message receive HMAC verify header value ${incomingSignature} calculated ${signature} did not match for remote ${systemMessageRemoteId}")
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "HMAC verify failed for remote system ${systemMessageRemoteId}")
+                    return
+                }
+
+                Timestamp incomingTimestamp = new Timestamp(Long.parseLong(timestamp) * 1000)
+
+                // Add 10 seconds to now timestamp to allow for clock skew (10 seconds = 10000 milliseconds = 10*1000)
+                Timestamp nowTimestamp = new Timestamp(eci.user.nowTimestamp.getTime() + 10000)
+                // If timestamp was not sent in past 5 minutes, reject message (5 minutes = 300000 milliseconds = 5*60*1000)
+                Timestamp beforeTimestamp = new Timestamp(nowTimestamp.getTime() - 300000)
+                if (!incomingTimestamp.before(nowTimestamp) || !incomingTimestamp.after(beforeTimestamp) ){
+                    logger.warn("System message receive HMAC invalid incoming timestamp where before timestamp ${beforeTimestamp} < incoming timestamp ${incomingTimestamp} < now timestamp ${nowTimestamp}" )
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "HMAC timestamp verification failed")
+                    return
+                }
+
+                // login anonymous if not logged in
+                eci.userFacade.loginAnonymousIfNoUser()
             } else if (!"SmatNone".equals(messageAuthEnumId)) {
                 logger.error("Got system message for remote ${systemMessageRemoteId} with unsupported messageAuthEnumId ${messageAuthEnumId}, returning error")
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Remote system ${systemMessageRemoteId} auth configuration not valid")
@@ -1174,6 +1309,8 @@ class WebFacadeImpl implements WebFacade {
     void saveScreenLastInfo(String screenPath, Map parameters) {
         session.setAttribute("moqui.screen.last.path", screenPath ?: getPathInfo())
         parameters = parameters ?: new HashMap(getRequestParameters())
+        // logger.warn("saveScreenLastInfo parameters: ${parameters}")
+        // logger.warn("saveScreenLastInfo getRequestParameters(): ${getRequestParameters().toString()}")
         WebUtilities.testSerialization("moqui.screen.last.parameters", parameters)
         session.setAttribute("moqui.screen.last.parameters", parameters)
     }
@@ -1208,20 +1345,26 @@ class WebFacadeImpl implements WebFacade {
 
     /** Save passed parameters Map to a Map in the moqui.saved.parameters session attribute */
     void saveParametersToSession(Map parameters) {
+        if (parameters == null || parameters.size() == 0) return
         Map parms = new HashMap()
+        // merge existing moqui.saved.parameters if there are any, valid for current request only as WebFacadeImpl() constructors removes this session attribute if has value
         Map currentSavedParameters = (Map) request.session.getAttribute("moqui.saved.parameters")
         if (currentSavedParameters) parms.putAll(currentSavedParameters)
-        if (parameters) parms.putAll(parameters)
+        parms.putAll(parameters)
+        if (!"production".equals(System.getProperty("instance_purpose")))
+            WebUtilities.testSerialization("moqui.saved.parameters", parms)
         session.setAttribute("moqui.saved.parameters", parms)
     }
     /** Save request parameters and attributes to a Map in the moqui.saved.parameters session attribute */
     void saveRequestParametersToSession() {
         Map parms = new HashMap()
+        // merge existing moqui.saved.parameters if there are any, valid for current request only as WebFacadeImpl() constructors removes this session attribute if has value
         Map currentSavedParameters = (Map) request.session.getAttribute("moqui.saved.parameters")
         if (currentSavedParameters) parms.putAll(currentSavedParameters)
         if (requestParameters) parms.putAll(requestParameters)
-        if (requestAttributes) parms.putAll(requestAttributes)
-        WebUtilities.testSerialization("moqui.saved.parameters", parms)
+        // don't include attributes, end up with internal stuff in URL parameters: if (requestAttributes) parms.putAll(requestAttributes)
+        if (!"production".equals(System.getProperty("instance_purpose")))
+            WebUtilities.testSerialization("moqui.saved.parameters", parms)
         session.setAttribute("moqui.saved.parameters", parms)
     }
 
@@ -1229,8 +1372,9 @@ class WebFacadeImpl implements WebFacade {
     void saveErrorParametersToSession() {
         Map parms = new HashMap()
         if (requestParameters) parms.putAll(requestParameters)
-        if (requestAttributes) parms.putAll(requestAttributes)
-        WebUtilities.testSerialization("moqui.saved.parameters", parms)
+        // don't include attributes, end up with internal stuff in URL parameters: if (requestAttributes) parms.putAll(requestAttributes)
+        if (!"production".equals(System.getProperty("instance_purpose")))
+            WebUtilities.testSerialization("moqui.error.parameters", parms)
         session.setAttribute("moqui.error.parameters", parms)
     }
 
@@ -1241,7 +1385,7 @@ class WebFacadeImpl implements WebFacade {
     void viewEmailMessage() {
         // first send the empty image
         response.setContentType('image/png')
-        response.addHeader("Content-Disposition", "inline")
+        response.setHeader("Content-Disposition", "inline")
         OutputStream os = response.outputStream
         try { os.write(trackingPng) } finally { os.close() }
         // mark the message viewed

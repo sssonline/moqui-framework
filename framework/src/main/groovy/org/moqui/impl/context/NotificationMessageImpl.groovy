@@ -20,10 +20,8 @@ import org.moqui.BaseArtifactException
 import org.moqui.Moqui
 import org.moqui.context.ExecutionContext
 import org.moqui.context.NotificationMessage
-import org.moqui.context.NotificationMessage.NotificationType
 import org.moqui.entity.EntityFacade
 import org.moqui.entity.EntityList
-import org.moqui.entity.EntityListIterator
 import org.moqui.entity.EntityValue
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -37,6 +35,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
     private Set<String> userIdSet = new HashSet()
     private String userGroupId = (String) null
     private String topic = (String) null
+    private String subTopic = (String) null
     private transient EntityValue notificationTopic = (EntityValue) null
     private String messageJson = (String) null
     private transient Map<String, Object> messageMap = (Map<String, Object>) null
@@ -50,8 +49,12 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
 
     private NotificationType type = (NotificationType) null
     private Boolean showAlert = (Boolean) null
-    private String emailTemplateId = (String) null
+    private Boolean alertNoAutoHide = (Boolean) null
     private Boolean persistOnSend = (Boolean) null
+    private String emailTemplateId = (String) null
+    private Boolean emailMessageSave = (Boolean) null
+
+    private Map<String, String> emailMessageIdByUserId = (Map<String, String>) null
 
     private transient ExecutionContextFactoryImpl ecfiTransient = (ExecutionContextFactoryImpl) null
 
@@ -88,16 +91,17 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
 
         // notify by group, skipping users already notified
         if (userGroupId) {
-            EntityListIterator eli = ef.find("moqui.security.UserGroupMember")
+            ef.find("moqui.security.UserGroupMember")
                     .conditionDate("fromDate", "thruDate", new Timestamp(System.currentTimeMillis()))
-                    .condition("userGroupId", userGroupId).disableAuthz().iterator()
-            EntityValue nextValue
-            while ((nextValue = (EntityValue) eli.next()) != null) {
-                String userId = (String) nextValue.userId
-                if (checkedUserIds.contains(userId)) continue
-                checkedUserIds.add(userId)
-                if (checkUserNotify(userId, ef)) notifyUserIds.add(userId)
-            }
+                    .condition("userGroupId", userGroupId).disableAuthz().iterator().withCloseable ({eli ->
+                EntityValue nextValue
+                while ((nextValue = (EntityValue) eli.next()) != null) {
+                    String userId = (String) nextValue.userId
+                    if (checkedUserIds.contains(userId)) continue
+                    checkedUserIds.add(userId)
+                    if (checkUserNotify(userId, ef)) notifyUserIds.add(userId)
+                }
+            })
         }
 
         // add all users subscribed to all messages on the topic
@@ -107,6 +111,18 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         for (int i = 0; i < allNotificationUsersSize; i++) {
             EntityValue allNotificationUser = (EntityValue) allNotificationUsers.get(i)
             notifyUserIds.add((String) allNotificationUser.userId)
+        }
+
+        // check each user to see if account terminated (UserAccount.terminateDate != null && < now)
+        long nowTime = System.currentTimeMillis()
+        EntityList notifyUserAccountList = ef.find("moqui.security.UserAccount")
+                .condition("userId", "in", notifyUserIds)
+                .selectField("userId").selectField("terminateDate").disableAuthz().list()
+        int notifyUaSize = notifyUserAccountList.size()
+        for (int i = 0; i < notifyUaSize; i++) {
+            EntityValue userAccount = (EntityValue) notifyUserAccountList.get(i)
+            Timestamp terminateDate = (Timestamp) userAccount.getNoCheckSimple("terminateDate")
+            if (terminateDate != (Timestamp) null && nowTime > terminateDate.getTime()) notifyUserIds.remove(userAccount.get("userId"))
         }
 
         return notifyUserIds
@@ -127,6 +143,9 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
 
     @Override NotificationMessage topic(String topic) { this.topic = topic; notificationTopic = null; return this }
     @Override String getTopic() { topic }
+
+    @Override String getSubTopic() { subTopic }
+    @Override NotificationMessage subTopic(String st) { subTopic = st; return this }
 
     @Override NotificationMessage message(String messageJson) { this.messageJson = messageJson; messageMap = null; return this }
     @Override NotificationMessage message(Map message) {
@@ -153,16 +172,18 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
     @Override NotificationMessage title(String title) { titleTemplate = title; return this }
     @Override String getTitle() {
         if (titleText == null) {
-            EntityValue localNotTopic = getNotificationTopic()
-            if (localNotTopic != null) {
-                if (type == danger && localNotTopic.errorTitleTemplate) {
-                    titleText = ecfi.resource.expand((String) localNotTopic.errorTitleTemplate, "", getMessageMap(), true)
-                } else if (localNotTopic.titleTemplate) {
-                    titleText = ecfi.resource.expand((String) localNotTopic.titleTemplate, "", getMessageMap(), true)
+            if (titleTemplate != null && !titleTemplate.isEmpty())
+                titleText = ecfi.resource.expand(titleTemplate, "", getMessageMap(), true)
+            if (titleText == null || titleText.isEmpty()) {
+                EntityValue localNotTopic = getNotificationTopic()
+                if (localNotTopic != null) {
+                    if (type == danger && localNotTopic.errorTitleTemplate) {
+                        titleText = ecfi.resource.expand((String) localNotTopic.errorTitleTemplate, "", getMessageMap(), true)
+                    } else if (localNotTopic.titleTemplate) {
+                        titleText = ecfi.resource.expand((String) localNotTopic.titleTemplate, "", getMessageMap(), true)
+                    }
                 }
             }
-            if ((titleText == null || titleText.isEmpty()) && titleTemplate != null && !titleTemplate.isEmpty())
-                titleText = ecfi.resource.expand(titleTemplate, "", getMessageMap(), true)
         }
         return titleText
     }
@@ -210,6 +231,20 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         }
     }
 
+    @Override NotificationMessage alertNoAutoHide(boolean noAutoHide) { alertNoAutoHide = noAutoHide; return this }
+    @Override boolean isAlertNoAutoHide() {
+        if (alertNoAutoHide != null) {
+            return alertNoAutoHide.booleanValue()
+        } else {
+            EntityValue localNotTopic = getNotificationTopic()
+            if (localNotTopic != null && localNotTopic.alertNoAutoHide) {
+                return localNotTopic.alertNoAutoHide == 'Y'
+            } else {
+                return false
+            }
+        }
+    }
+
     @Override NotificationMessage emailTemplateId(String id) {
         emailTemplateId = id
         if (emailTemplateId != null && emailTemplateId.isEmpty()) emailTemplateId = null
@@ -227,8 +262,23 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
             }
         }
     }
+    @Override NotificationMessage emailMessageSave(Boolean save) { emailMessageSave = save; return this }
+    @Override boolean isEmailMessageSave() {
+        if (emailMessageSave != null) {
+            return emailMessageSave.booleanValue()
+        } else {
+            EntityValue localNotTopic = getNotificationTopic()
+            if (localNotTopic != null && localNotTopic.emailMessageSave) {
+                return localNotTopic.emailMessageSave == 'Y'
+            } else {
+                return false
+            }
+        }
+    }
 
-    @Override NotificationMessage persistOnSend(boolean persist) { persistOnSend = persist; return this }
+    @Override Map<String, String> getEmailMessageIdByUserId() { return emailMessageIdByUserId }
+
+    @Override NotificationMessage persistOnSend(Boolean persist) { persistOnSend = persist; return this }
     @Override boolean isPersistOnSend() {
         if (persistOnSend != null) {
             return persistOnSend.booleanValue()
@@ -250,6 +300,44 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         // persist if is persistOnSend
         if (isPersistOnSend()) {
             sentDate = new Timestamp(System.currentTimeMillis())
+            TransactionFacadeImpl tfi = ecfi.transactionFacade
+
+            // run in separate transaction so that it is saved immediately, NotificationMessage listeners running async are
+            //     outside of this transaction and may use these records (like markSent() before the current tx is complete)
+            boolean suspendedTransaction = false
+            try {
+                if (tfi.isTransactionInPlace()) suspendedTransaction = tfi.suspend()
+                boolean beganTransaction = tfi.begin(null)
+                try {
+                    Map createResult = ecfi.service.sync().name("create", "moqui.security.user.NotificationMessage")
+                            .parameters([topic:this.topic, subTopic:this.subTopic, userGroupId:this.userGroupId, sentDate:this.sentDate,
+                                    messageJson:this.getMessageJson(), titleText:this.getTitle(), linkText:this.getLink(),
+                                    typeString:this.getType(), showAlert:(this.showAlert ? 'Y' : 'N')])
+                            .disableAuthz().call()
+                    // if it's null we got an error so return from closure
+                    if (createResult == null) return
+
+                    this.setNotificationMessageId((String) createResult.notificationMessageId)
+                    for (String userId in this.getNotifyUserIds())
+                        ecfi.service.sync().name("create", "moqui.security.user.NotificationMessageUser")
+                                .parameters([notificationMessageId:createResult.notificationMessageId, userId:userId])
+                                .disableAuthz().call()
+                } catch (Throwable t) {
+                    tfi.rollback(beganTransaction, "Error saving NotificationMessage", t)
+                    throw t
+                } finally {
+                    tfi.commit(beganTransaction)
+                }
+            } finally {
+                if (suspendedTransaction) tfi.resume()
+            }
+
+            /* old approach, cleaner and simpler but blows up under Groovy 2.5.13 and later
+             *  java.lang.VerifyError: Bad type on operand stack
+             *  Exception Details:
+             *  Location: org/moqui/impl/context/NotificationMessageImpl$_send_closure1.doCall(Ljava/lang/Object;)Ljava/lang/Object; @223: ifnonnull
+             *  Reason: Type integer (current frame, stack[5]) is not assignable to reference type
+
             // a little trick so that this is available in the closure
             NotificationMessageImpl nmi = this
             // run in runRequireNew so that it is saved immediately, NotificationMessage listeners running async are
@@ -269,6 +357,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
                             .parameters([notificationMessageId:createResult.notificationMessageId, userId:userId])
                             .disableAuthz().call()
             })
+             */
         }
 
         // now send it to the topic
@@ -277,27 +366,39 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         // send emails if emailTemplateId
         String localEmailTemplateId = getEmailTemplateId()
         if (localEmailTemplateId != null && !localEmailTemplateId.isEmpty()) {
+            Map<String, Object> wrappedMessageMap = getWrappedMessageMap()
+            EntityValue notificationTopic = getNotificationTopic()
+
             Set<String> curNotifyUserIds = getNotifyUserIds()
+            EntityList notificationTopicUsers = ecfi.entityFacade.find("moqui.security.user.NotificationTopicUser")
+                    .condition("topic", topic).condition("userId", "in", curNotifyUserIds).disableAuthz().list()
 
-            EntityList emailNotificationUsers = ecfi.entityFacade.find("moqui.security.user.NotificationTopicUser")
-                    .condition("topic", topic).condition("emailNotifications", "Y").disableAuthz().list()
-            int emailNotificationUsersSize = emailNotificationUsers.size()
-            if (emailNotificationUsersSize > 0) {
-                Map<String, Object> wrappedMessageMap = getWrappedMessageMap()
-                
-                for (int i = 0; i < emailNotificationUsersSize; i++) {
-                    EntityValue notificationUser = (EntityValue) emailNotificationUsers.get(i)
-                    String userId = (String) notificationUser.userId
-                    if (!curNotifyUserIds.contains(userId)) continue
+            for (String userId in curNotifyUserIds) {
+                EntityValue notificationUser = (EntityValue) notificationTopicUsers.findByAnd("userId", userId)
 
-                    EntityValue userAccount = ecfi.entityFacade.find("moqui.security.UserAccount")
-                            .condition("userId", userId).disableAuthz().one()
-                    String emailAddress = userAccount?.emailAddress
-                    if (emailAddress) {
-                        // FUTURE: if there is an option to create EmailMessage record also configure emailTypeEnumId (maybe if emailTypeEnumId is set create EmailMessage)
-                        ecfi.serviceFacade.async().name("org.moqui.impl.EmailServices.send#EmailTemplate")
-                                .parameters([emailTemplateId:localEmailTemplateId, toAddresses:emailAddress,
-                                    bodyParameters:wrappedMessageMap, toUserId:userId, createEmailMessage:false]).call()
+                if ("N".equals(notificationUser?.emailNotifications)) continue
+                if (!("Y".equals(notificationUser?.emailNotifications) || "Y".equals(notificationTopic?.emailNotifications))) continue
+
+                EntityValue userAccount = ecfi.entityFacade.find("moqui.security.UserAccount")
+                        .condition("userId", userId).disableAuthz().one()
+                String emailAddress = userAccount?.emailAddress
+                if (emailAddress) {
+                    // FUTURE: if there is an option to create EmailMessage record also configure emailTypeEnumId (maybe if emailTypeEnumId is set create EmailMessage)
+                    Map<String, Object> sendOut = ecfi.serviceFacade.sync().name("org.moqui.impl.EmailServices.send#EmailTemplate")
+                            .parameters([emailTemplateId:localEmailTemplateId, toAddresses:emailAddress,
+                                    bodyParameters:wrappedMessageMap, toUserId:userId, createEmailMessage:isEmailMessageSave()]).call()
+                    String emailMessageId = (String) sendOut.emailMessageId
+                    if (emailMessageId) {
+                        if (emailMessageIdByUserId == null) emailMessageIdByUserId = new HashMap<String, String>()
+                        emailMessageIdByUserId.put(userId, emailMessageId)
+                        String notificationMessageId = getNotificationMessageId()
+                        if (notificationMessageId) {
+                            // use store to update if was created above or create if not
+                            ecfi.service.sync().name("store", "moqui.security.user.NotificationMessageUser")
+                                    .parameters([notificationMessageId:notificationMessageId, userId:userId,
+                                            emailMessageId:emailMessageId, sentDate:new Timestamp(System.currentTimeMillis())])
+                                    .disableAuthz().call()
+                        }
                     }
                 }
             }
@@ -354,8 +455,9 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
 
     @Override Map<String, Object> getWrappedMessageMap() {
         EntityValue localNotTopic = getNotificationTopic()
-        return [topic:topic, sentDate:sentDate, notificationMessageId:notificationMessageId, topicDescription:localNotTopic?.description,
-            message:getMessageMap(), title:getTitle(), link:getLink(), type:getType(), showAlert:isShowAlert(), persistOnSend:isPersistOnSend()]
+        return [topic:topic, subTopic:subTopic, sentDate:sentDate, notificationMessageId:notificationMessageId, topicDescription:localNotTopic?.description,
+                message:getMessageMap(), title:getTitle(), link:getLink(), type:getType(), persistOnSend:isPersistOnSend(),
+                showAlert:isShowAlert(), alertNoAutoHide:isAlertNoAutoHide()]
     }
     @Override String getWrappedMessageJson() {
         Map<String, Object> wrappedMap = getWrappedMessageMap()
@@ -370,6 +472,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
     void populateFromValue(EntityValue nmbu) {
         this.notificationMessageId = nmbu.notificationMessageId
         this.topic = nmbu.topic
+        this.subTopic = nmbu.subTopic
         this.sentDate = nmbu.getTimestamp("sentDate")
         this.userGroupId = nmbu.userGroupId
         this.messageJson = nmbu.messageJson
@@ -377,6 +480,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         this.linkText = nmbu.linkText
         if (nmbu.typeString) this.type = NotificationType.valueOf((String) nmbu.typeString)
         this.showAlert = nmbu.showAlert == 'Y'
+        this.alertNoAutoHide = nmbu.alertNoAutoHide == 'Y'
 
         EntityList nmuList = nmbu.findRelated("moqui.security.user.NotificationMessageUser",
                 [notificationMessageId:notificationMessageId] as Map<String, Object>, null, false, false)
@@ -388,6 +492,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         out.writeObject(userIdSet)
         out.writeObject(userGroupId)
         out.writeUTF(topic)
+        out.writeObject(subTopic)
         out.writeUTF(getMessageJson())
         out.writeObject(notificationMessageId)
         out.writeObject(sentDate)
@@ -395,12 +500,14 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         out.writeObject(getLink())
         out.writeObject(type)
         out.writeObject(showAlert)
+        out.writeObject(alertNoAutoHide)
         out.writeObject(persistOnSend)
     }
     @Override void readExternal(ObjectInput objectInput) throws IOException, ClassNotFoundException {
         userIdSet = (Set<String>) objectInput.readObject()
         userGroupId = (String) objectInput.readObject()
         topic = objectInput.readUTF()
+        subTopic = objectInput.readObject()
         messageJson = objectInput.readUTF()
         notificationMessageId = (String) objectInput.readObject()
         sentDate = (Timestamp) objectInput.readObject()
@@ -408,6 +515,7 @@ class NotificationMessageImpl implements NotificationMessage, Externalizable {
         linkText = (String) objectInput.readObject()
         type = (NotificationType) objectInput.readObject()
         showAlert = (Boolean) objectInput.readObject()
+        alertNoAutoHide = (Boolean) objectInput.readObject()
         persistOnSend = (Boolean) objectInput.readObject()
     }
 }

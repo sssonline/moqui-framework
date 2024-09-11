@@ -12,7 +12,7 @@ You should have received a copy of the CC0 Public Domain Dedication
 along with this software (see the LICENSE.md file). If not, see
 <http://creativecommons.org/publicdomain/zero/1.0/>.
 -->
-<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-2.1.xsd">
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
     <!-- ========================================================= -->
     <!-- moqui.screen -->
     <!-- ========================================================= -->
@@ -23,6 +23,44 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="thruDate" type="date-time"/>
         <field name="screenPath" type="text-medium"/>
     </entity>
+    <entity entity-name="ScreenScheduled" package="moqui.screen" use="configuration">
+        <description>For scheduled screen renders to send by email and/or write to a resource location. Primarily intended for use
+            on report screens with a form-list and saved-finds enabled, referencing the formListFindId for saved columns, parameters, etc.</description>
+        <field name="screenScheduledId" type="id" is-pk="true"/>
+        <field name="screenPath" type="text-medium"/>
+        <field name="formListFindId" type="id"/>
+        <field name="renderMode" type="text-short"><description>Defaults to 'csv', can also use 'xsl-fo' with PDF rendering, 'xlsx' if moqui-poi component in place</description></field>
+        <field name="noResultsAbort" type="text-indicator">
+            <description>Set to Y to abort (not send or write) if there are no results in form-list on screen</description></field>
+        <field name="cronExpression" type="text-medium"/>
+        <field name="fromDate" type="date-time"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="saveToLocation" type="text-long"><description>Expandable String for resource location to save to, only save to location if specified</description></field>
+        <field name="emailTemplateId" type="id"><description>EmailTemplate to use to send by email, generally of type EMT_SCREEN_RENDER,
+            for default use the Default Screen Render template (set to 'SCREEN_RENDER'); only sends email if specified</description></field>
+        <field name="emailSubject" type="text-long"/>
+        <field name="userId" type="id"><description>Send email to UserAccount.emailAddress for the user</description></field>
+        <field name="userGroupId" type="id"><description>Send email to UserAccount.emailAddress for each user in the group</description></field>
+        <!-- FUTURE: consider adding 'topic' field for sending a Notification when a screen render is done, along with info about
+            email or location; would be useful for more secure reports so user gets a notification (internal or email) and then can
+            view the saved report through a browser if they have access -->
+        <relationship type="one" related="moqui.screen.form.FormListFind" short-alias="formListFind"/>
+        <relationship type="one" related="moqui.basic.email.EmailTemplate" short-alias="emailTemplate"/>
+        <relationship type="one" related="moqui.security.UserAccount" short-alias="user"/>
+        <relationship type="one" related="moqui.security.UserGroup" short-alias="userGroup"/>
+    </entity>
+    <entity entity-name="ScreenScheduledLock" package="moqui.screen" use="transactional" cache="never">
+        <description>Runtime data for a scheduled ServiceJob (with a cronExpression), managed automatically by the service job runner.</description>
+        <field name="screenScheduledId" type="id" is-pk="true"/>
+        <field name="lastRunTime" type="date-time"/>
+        <relationship type="one" related="moqui.screen.ScreenScheduled"/>
+    </entity>
+    <view-entity entity-name="ScreenScheduledAndFind" package="moqui.screen">
+        <member-entity entity-alias="SSCH" entity-name="moqui.screen.ScreenScheduled"/>
+        <member-relationship entity-alias="FLF" join-from-alias="SSCH" relationship="formListFind"/>
+        <alias-all entity-alias="SSCH"/>
+        <alias-all entity-alias="FLF"/>
+    </view-entity>
 
     <!-- ========== Subscreen ========== -->
     <entity entity-name="SubscreensItem" package="moqui.screen" use="configuration" cache="true">
@@ -71,7 +109,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="screenThemeId" type="id" is-pk="true"/>
         <field name="screenThemeTypeEnumId" type="id"/>
         <field name="description" type="text-medium"/>
-        <relationship type="one" title="ScreenThemeType" related="moqui.basic.Enumeration">
+        <relationship type="one" title="ScreenThemeType" related="moqui.basic.Enumeration" short-alias="screenThemeTypeEnum">
             <key-map field-name="screenThemeTypeEnumId"/></relationship>
         <seed-data>
             <!-- Screen Themes -->
@@ -94,18 +132,20 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="resourceTypeEnumId" type="id"/>
         <field name="resourceValue" type="text-long">
             <description>The location, name or other value description the resource.</description></field>
-        <relationship type="one" related="moqui.screen.ScreenTheme"/>
-        <relationship type="one" title="ScreenThemeResourceType" related="moqui.basic.Enumeration">
+        <relationship type="one" related="moqui.screen.ScreenTheme" short-alias="screenTheme"/>
+        <relationship type="one" title="ScreenThemeResourceType" related="moqui.basic.Enumeration" short-alias="resourceTypeEnum">
             <key-map field-name="resourceTypeEnumId" related="enumId"/></relationship>
         <seed-data>
             <moqui.basic.EnumerationType description="Screen Theme Resource Type" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Style Sheet (CSS) URL" enumId="STRT_STYLESHEET" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Script URL" enumId="STRT_SCRIPT" enumTypeId="ScreenThemeResourceType"/>
+            <moqui.basic.Enumeration description="Script Footer URL" enumId="STRT_SCRIPT_FOOTER" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Shortcut Icon URL" enumId="STRT_SHORTCUT_ICON" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Header Logo URL" enumId="STRT_HEADER_LOGO" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Header Title" enumId="STRT_HEADER_TITLE" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Header Navbar Item" enumId="STRT_HEADER_NAVBAR_ITEM" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Header Navbar Component" enumId="STRT_HEADER_NAVBAR_COMP" enumTypeId="ScreenThemeResourceType"/>
+            <moqui.basic.Enumeration description="Header Account Component" enumId="STRT_HEADER_ACCOUNT_COMP" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Footer Item" enumId="STRT_FOOTER_ITEM" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="HTML Body CSS Class" enumId="STRT_BODY_CLASS" enumTypeId="ScreenThemeResourceType"/>
             <moqui.basic.Enumeration description="Theme Preview Screenshot" enumId="STRT_SCREENSHOT" enumTypeId="ScreenThemeResourceType"/>
@@ -115,23 +155,33 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="screenThemeId" type="id" is-pk="true"/>
         <field name="textPattern" type="text-medium" is-pk="true"/>
         <field name="iconClass" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.ScreenTheme"/>
+        <relationship type="one" related="moqui.screen.ScreenTheme" short-alias="screenTheme"/>
     </entity>
 
     <!-- ========================================================= -->
     <!-- moqui.screen.form -->
     <!-- ========================================================= -->
 
+    <!-- ========== Form Configuration ========== -->
+
     <entity entity-name="FormConfig" package="moqui.screen.form" use="configuration">
         <field name="formConfigId" type="id" is-pk="true"/>
         <field name="description" type="text-medium"/>
         <field name="formLocation" type="text-medium"/>
+        <field name="configTypeEnumId" type="id"/>
+        <relationship type="one" title="FormConfigType" related="moqui.basic.Enumeration">
+            <key-map field-name="configTypeEnumId"/></relationship>
         <relationship type="many" related="moqui.screen.form.FormConfigField" short-alias="fields">
             <key-map field-name="formConfigId"/></relationship>
         <relationship type="many" related="moqui.screen.form.FormConfigUser" short-alias="users">
             <key-map field-name="formConfigId"/></relationship>
         <relationship type="many" related="moqui.screen.form.FormConfigUserGroup" short-alias="userGroups">
             <key-map field-name="formConfigId"/></relationship>
+        <seed-data>
+            <moqui.basic.EnumerationType description="Form Config Type" enumTypeId="FormConfigType"/>
+            <moqui.basic.Enumeration description="Desktop" enumCode="desktop" enumId="FctDesktop" enumTypeId="FormConfigType"/>
+            <moqui.basic.Enumeration description="Mobile" enumCode="mobile" enumId="FctMobile" enumTypeId="FormConfigType"/>
+        </seed-data>
     </entity>
     <entity entity-name="FormConfigField" package="moqui.screen.form" use="configuration">
         <field name="formConfigId" type="id" is-pk="true"/>
@@ -140,21 +190,34 @@ along with this software (see the LICENSE.md file). If not, see
             <description>The position (row for form-single, column for form-list) number to put the field in</description></field>
         <field name="positionSequence" type="number-integer"><description>The sequence within the row or column</description></field>
         <!-- FUTURE: <field name="fieldDisabled" type="text-indicator"><description>For displaying the field but not allowing edit</description></field> -->
-        <relationship type="one" related="moqui.screen.form.FormConfig"/>
+        <relationship type="one" related="moqui.screen.form.FormConfig" short-alias="formConfig"/>
     </entity>
     <entity entity-name="FormConfigUser" package="moqui.screen.form" use="configuration">
         <description>Structured to have a single FormConfig per form and user.</description>
         <field name="formLocation" type="text-medium" is-pk="true"/>
         <field name="userId" type="id" is-pk="true"/>
         <field name="formConfigId" type="id"/>
-        <relationship type="one-nofk" related="moqui.security.UserAccount"/>
-        <relationship type="one" related="moqui.screen.form.FormConfig"/>
+        <relationship type="one-nofk" related="moqui.security.UserAccount" short-alias="userAccount"/>
+        <relationship type="one" related="moqui.screen.form.FormConfig" short-alias="formConfig"/>
+    </entity>
+    <entity entity-name="FormConfigUserType" package="moqui.screen.form" use="configuration">
+        <!-- NOTE: the combination of FormConfigUser and FormConfigUserType is far from ideal in terms of modeling but has 2 key
+            benefits: avoid deprecating and migrating data from FormConfigUser, handle the default FormConfig with no (null) type without workaround -->
+        <description>Structured to have a single FormConfig per form and user.</description>
+        <field name="formLocation" type="text-medium" is-pk="true"/>
+        <field name="userId" type="id" is-pk="true"/>
+        <field name="configTypeEnumId" type="id" is-pk="true"/>
+        <field name="formConfigId" type="id"/>
+        <relationship type="one-nofk" related="moqui.security.UserAccount" short-alias="userAccount"/>
+        <relationship type="one" title="FormConfigType" related="moqui.basic.Enumeration">
+            <key-map field-name="configTypeEnumId"/></relationship>
+        <relationship type="one" related="moqui.screen.form.FormConfig" short-alias="formConfig"/>
     </entity>
     <entity entity-name="FormConfigUserGroup" package="moqui.screen.form" use="configuration">
         <field name="formConfigId" type="id" is-pk="true"/>
         <field name="userGroupId" type="id" is-pk="true"/>
-        <relationship type="one" related="moqui.screen.form.FormConfig"/>
-        <relationship type="one" related="moqui.security.UserGroup"/>
+        <relationship type="one" related="moqui.screen.form.FormConfig" short-alias="formConfig"/>
+        <relationship type="one" related="moqui.security.UserGroup" short-alias="userGroup"/>
     </entity>
     <view-entity entity-name="FormConfigUserGroupView" package="moqui.screen.form">
         <member-entity entity-alias="FCNF" entity-name="moqui.screen.form.FormConfig"/>
@@ -170,7 +233,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="orderByField" type="text-medium"/>
         <field name="formConfigId" type="id"/>
         <!-- may be useful for certain search backed forms: <field name="searchString" type="text-medium"/> -->
-        <relationship type="one" related="moqui.screen.form.FormConfig"/>
+        <relationship type="one" related="moqui.screen.form.FormConfig" short-alias="formConfig"/>
         <relationship type="many" related="moqui.screen.form.FormListFindField" short-alias="fields">
             <key-map field-name="formListFindId"/></relationship>
         <relationship type="many" related="moqui.screen.form.FormListFindUser" short-alias="users">
@@ -190,13 +253,22 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="fieldThru" type="text-short"/>
         <field name="fieldPeriod" type="text-short"/>
         <field name="fieldPerOffset" type="number-integer"/>
-        <relationship type="one" related="moqui.screen.form.FormListFind"/>
+        <relationship type="one" related="moqui.screen.form.FormListFind" short-alias="formListFind"/>
     </entity>
     <entity entity-name="FormListFindUser" package="moqui.screen.form" use="configuration">
         <field name="formListFindId" type="id" is-pk="true"/>
         <field name="userId" type="id" is-pk="true"/>
-        <relationship type="one" related="moqui.screen.form.FormListFind"/>
-        <relationship type="one-nofk" related="moqui.security.UserAccount"/>
+        <relationship type="one" related="moqui.screen.form.FormListFind" short-alias="formListFind"/>
+        <relationship type="one-nofk" related="moqui.security.UserAccount" short-alias="userAccount"/>
+    </entity>
+    <entity entity-name="FormListFindUserDefault" package="moqui.screen.form" use="configuration">
+        <description>Per-User default FormListFind by screen location and not form location because must be handled
+            very early in screen rendering so parameters are available to actions, etc</description>
+        <field name="screenLocation" type="text-medium" is-pk="true"/>
+        <field name="userId" type="id" is-pk="true"/>
+        <field name="formListFindId" type="id"/>
+        <relationship type="one-nofk" related="moqui.security.UserAccount" short-alias="userAccount"/>
+        <relationship type="one" related="moqui.screen.form.FormListFind" short-alias="formListFind"/>
     </entity>
     <view-entity entity-name="FormListFindUserView" package="moqui.screen.form">
         <member-entity entity-alias="FLF" entity-name="moqui.screen.form.FormListFind"/>
@@ -207,8 +279,8 @@ along with this software (see the LICENSE.md file). If not, see
     <entity entity-name="FormListFindUserGroup" package="moqui.screen.form" use="configuration">
         <field name="formListFindId" type="id" is-pk="true"/>
         <field name="userGroupId" type="id" is-pk="true"/>
-        <relationship type="one" related="moqui.screen.form.FormListFind"/>
-        <relationship type="one" related="moqui.security.UserGroup"/>
+        <relationship type="one" related="moqui.screen.form.FormListFind" short-alias="formListFind"/>
+        <relationship type="one" related="moqui.security.UserGroup" short-alias="userGroup"/>
     </entity>
     <view-entity entity-name="FormListFindUserGroupView" package="moqui.screen.form">
         <member-entity entity-alias="FLF" entity-name="moqui.screen.form.FormListFind"/>
@@ -216,6 +288,8 @@ along with this software (see the LICENSE.md file). If not, see
             <key-map field-name="formListFindId"/></member-entity>
         <alias-all entity-alias="FLF"/><alias-all entity-alias="FLFUG"/>
     </view-entity>
+
+    <!-- ========== Database Defined Forms ========== -->
 
     <entity entity-name="DbForm" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
@@ -235,7 +309,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="printRepeatCount" type="number-integer"/>
         <field name="printRepeatNewPage" type="text-indicator"/>
         <field name="printDuplicateRight" type="text-short"><description>Duplicates form to the right (does not count towards printRepeatCount)</description></field>
-        <relationship type="one" title="DbFormPurpose" related="moqui.basic.Enumeration">
+        <relationship type="one" title="DbFormPurpose" related="moqui.basic.Enumeration" short-alias="purposeEnum">
             <key-map field-name="purposeEnumId"/></relationship>
         <seed-data>
             <moqui.basic.EnumerationType description="DB Form Purpose" enumTypeId="DbFormPurpose"/>
@@ -246,14 +320,18 @@ along with this software (see the LICENSE.md file). If not, see
     <entity entity-name="DbFormField" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
         <field name="fieldName" type="text-medium" is-pk="true"/>
+        <field name="condition" type="text-medium">
+            <description>Only show this field if the condition evaluates to true (Groovy expression)</description></field>
         <field name="entryName" type="text-medium"/>
         <field name="title" type="text-medium"/>
         <field name="tooltip" type="text-medium"/>
         <field name="fieldTypeEnumId" type="id"><description>Field type for presentation, validation;
             always stored as plain text FormResponseAnswer</description></field>
         <field name="layoutSequenceNum" type="number-integer"/>
+        <field name="isRequired" type="text-indicator"/>
 
-        <field name="printPageNumber" type="number-integer"><description>Defaults to 1, ie one page/section for all fields if nothing higher than 1 is specified.</description></field>
+        <field name="printPageNumber" type="number-integer">
+            <description>Defaults to 1, ie one page/section for all fields if nothing higher than 1 is specified.</description></field>
         <field name="printTop" type="text-short"/>
         <field name="printLeft" type="text-short"/>
         <field name="printBottom" type="text-short"/>
@@ -265,8 +343,8 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="printFontSize" type="text-short"/>
         <field name="printFontFamily" type="text-short"/>
 
-        <relationship type="one" related="moqui.screen.form.DbForm"/>
-        <relationship type="one" title="DbFormFieldType" related="moqui.basic.Enumeration">
+        <relationship type="one" related="moqui.screen.form.DbForm" short-alias="dbForm"/>
+        <relationship type="one" title="DbFormFieldType" related="moqui.basic.Enumeration" short-alias="fieldTypeEnum">
             <key-map field-name="fieldTypeEnumId" related="enumId"/></relationship>
         <seed-data>
             <moqui.basic.EnumerationType description="DB Form Field Type" enumTypeId="DbFormFieldType"/>
@@ -307,7 +385,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="fieldName" type="text-medium" is-pk="true"/>
         <field name="attributeName" type="text-medium" is-pk="true"/>
         <field name="value" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.form.DbFormField"/>
+        <relationship type="one" related="moqui.screen.form.DbFormField" short-alias="dbFormField"/>
     </entity>
     <entity entity-name="DbFormFieldOption" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
@@ -315,7 +393,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="sequenceNum" type="number-integer" is-pk="true"/>
         <field name="keyValue" type="text-medium"/>
         <field name="text" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.form.DbFormField"/>
+        <relationship type="one" related="moqui.screen.form.DbFormField" short-alias="dbFormField"/>
     </entity>
     <entity entity-name="DbFormFieldEntOpts" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
@@ -323,7 +401,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="sequenceNum" type="number-integer" is-pk="true"/>
         <field name="entityName" type="text-medium"/>
         <field name="text" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.form.DbFormField"/>
+        <relationship type="one" related="moqui.screen.form.DbFormField" short-alias="dbFormField"/>
     </entity>
     <entity entity-name="DbFormFieldEntOptsCond" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
@@ -331,7 +409,7 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="sequenceNum" type="number-integer" is-pk="true"/>
         <field name="entityFieldName" type="text-medium" is-pk="true"/>
         <field name="value" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.form.DbFormFieldEntOpts"/>
+        <relationship type="one" related="moqui.screen.form.DbFormFieldEntOpts" short-alias="dbFormFieldEntOpts"/>
     </entity>
     <entity entity-name="DbFormFieldEntOptsOrder" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
@@ -339,14 +417,14 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="sequenceNum" type="number-integer" is-pk="true"/>
         <field name="orderSequenceNum" type="number-integer" is-pk="true"/>
         <field name="entityFieldName" type="text-medium"/>
-        <relationship type="one" related="moqui.screen.form.DbFormFieldEntOpts"/>
+        <relationship type="one" related="moqui.screen.form.DbFormFieldEntOpts" short-alias="dbFormFieldEntOpts"/>
     </entity>
     <entity entity-name="DbFormUserGroup" package="moqui.screen.form" use="configuration">
         <field name="formId" type="id" is-pk="true"/>
         <field name="userGroupId" type="id" is-pk="true"><description>These settings are for a UserGroup. To apply to
             all users just use the ALL_USERS UserGroup.</description></field>
-        <relationship type="one" related="moqui.screen.form.DbForm"/>
-        <relationship type="one" related="moqui.security.UserGroup"/>
+        <relationship type="one" related="moqui.screen.form.DbForm" short-alias="dbForm"/>
+        <relationship type="one" related="moqui.security.UserGroup" short-alias="userGroup"/>
     </entity>
     <view-entity entity-name="DbFormLookup" package="moqui.screen.form">
         <member-entity entity-alias="DBF" entity-name="DbForm"/>
@@ -372,8 +450,8 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="formId" type="id"/>
         <field name="userId" type="id"/>
         <field name="responseDate" type="date-time"/>
-        <relationship type="one" related="moqui.screen.form.DbForm"/>
-        <relationship type="one" related="moqui.security.UserAccount"/>
+        <relationship type="one" related="moqui.screen.form.DbForm" short-alias="dbForm"/>
+        <relationship type="one" related="moqui.security.UserAccount" short-alias="userAccount"/>
     </entity>
     <entity entity-name="FormResponseAnswer" package="moqui.screen.form" use="nontransactional" cache="never">
         <field name="formResponseAnswerId" type="id" is-pk="true"/>
@@ -383,9 +461,9 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="sequenceNum" type="number-integer"/>
         <field name="valueText" type="text-long"/>
         <relationship type="one" related="moqui.screen.form.FormResponse"/>
-        <relationship type="one" related="moqui.screen.form.DbForm"/>
+        <relationship type="one" related="moqui.screen.form.DbForm" short-alias="dbForm"/>
         <!-- this is nofk because for forms other than DbForms fieldName may be populated but formId null -->
-        <relationship type="one-nofk" related="moqui.screen.form.DbFormField"/>
+        <relationship type="one-nofk" related="moqui.screen.form.DbFormField" short-alias="dbFormField"/>
     </entity>
 
     <view-entity entity-name="FormResponseAnsAndDbFormField" package="moqui.screen.form">

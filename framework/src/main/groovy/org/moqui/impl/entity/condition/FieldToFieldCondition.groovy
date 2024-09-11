@@ -76,6 +76,10 @@ class FieldToFieldCondition implements EntityConditionImplBase {
         }
         if (ignoreCase && toTypeValue == 1) sql.append(")")
     }
+    @Override
+    void makeSearchFilter(List<Map<String, Object>> filterList) {
+        // TODO
+    }
 
     @Override
     boolean mapMatches(Map<String, Object> map) {
@@ -109,9 +113,14 @@ class FieldToFieldCondition implements EntityConditionImplBase {
         MNode fieldMe = field.getFieldInfo(mainEd).directMemberEntityNode
         MNode toFieldMe = toField.getFieldInfo(mainEd).directMemberEntityNode
         if (entityAlias == null) {
-            if ((fieldMe != null && "true".equalsIgnoreCase(fieldMe.attribute("sub-select"))) &&
-                    (toFieldMe != null && "true".equalsIgnoreCase(toFieldMe.attribute("sub-select"))) &&
-                    fieldMe.attribute("entity-alias").equals(toFieldMe.attribute("entity-alias"))) return null
+            if (fieldMe != null && toFieldMe != null) {
+                String subSelectAttr = fieldMe.attribute("sub-select");
+                String toSubSelectAttr = toFieldMe.attribute("sub-select");
+                if (("true".equals(subSelectAttr) || "non-lateral".equals(subSelectAttr)) &&
+                        ("true".equals(toSubSelectAttr) || "non-lateral".equals(toSubSelectAttr)) &&
+                        fieldMe.attribute("entity-alias").equals(toFieldMe.attribute("entity-alias")))
+                    return null
+            }
             return this
         } else {
             if ((fieldMe != null && entityAlias.equals(fieldMe.attribute("entity-alias"))) &&

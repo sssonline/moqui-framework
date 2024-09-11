@@ -1,12 +1,12 @@
 /*
- * This software is in the public domain under CC0 1.0 Universal plus a 
+ * This software is in the public domain under CC0 1.0 Universal plus a
  * Grant of Patent License.
- * 
+ *
  * To the extent possible under law, the author(s) have dedicated all
  * copyright and related and neighboring rights to this software to the
  * public domain worldwide. This software is distributed without any
  * warranty.
- * 
+ *
  * You should have received a copy of the CC0 Public Domain Dedication
  * along with this software (see the LICENSE.md file). If not, see
  * <http://creativecommons.org/publicdomain/zero/1.0/>.
@@ -24,6 +24,8 @@ import org.apache.shiro.subject.PrincipalCollection
 import org.apache.shiro.util.SimpleByteSource
 import org.moqui.BaseArtifactException
 import org.moqui.Moqui
+import org.moqui.context.PasswordChangeRequiredException
+import org.moqui.context.SecondFactorRequiredException
 import org.moqui.entity.EntityCondition
 import org.moqui.entity.EntityList
 import org.moqui.entity.EntityValue
@@ -73,6 +75,19 @@ class MoquiShiroRealm implements Realm, Authorizer {
         EntityValue newUserAccount = eci.entity.find("moqui.security.UserAccount").condition("username", username)
                 .useCache(true).disableAuthz().one()
 
+        if (newUserAccount == null) {
+            // case-insensitive lookup by username
+            EntityCondition usernameCond = eci.entityFacade.getConditionFactory()
+                    .makeCondition("username", EntityCondition.ComparisonOperator.EQUALS, username).ignoreCase()
+            newUserAccount = eci.entity.find("moqui.security.UserAccount").condition(usernameCond).disableAuthz().one()
+        }
+        if (newUserAccount == null) {
+            // look at emailAddress if used instead, with case-insensitive lookup
+            EntityCondition emailAddressCond = eci.entityFacade.getConditionFactory()
+                    .makeCondition("emailAddress", EntityCondition.ComparisonOperator.EQUALS, username).ignoreCase()
+            newUserAccount = eci.entity.find("moqui.security.UserAccount").condition(emailAddressCond).disableAuthz().one()
+        }
+
         // no account found?
         if (newUserAccount == null) throw new UnknownAccountException(eci.resource.expand('No account found for username ${username}','',[username:username]))
 
@@ -85,28 +100,37 @@ class MoquiShiroRealm implements Realm, Authorizer {
                 Timestamp reEnableTime = new Timestamp(newUserAccount.getTimestamp("disabledDateTime").getTime() + (disabledMinutes.intValue()*60I*1000I))
                 if (reEnableTime > eci.user.nowTimestamp) {
                     // only blow up if the re-enable time is not passed
-                    eci.service.sync().name("org.moqui.impl.UserServices.incrementUserAccountFailedLogins")
+                    eci.service.sync().name("org.moqui.impl.UserServices.increment#UserAccountFailedLogins")
                             .parameter("userId", newUserAccount.userId).requireNewTransaction(true).call()
                     throw new ExcessiveAttemptsException(eci.resource.expand('Authenticate failed for user ${newUserAccount.username} because account is disabled and will not be re-enabled until ${reEnableTime} [DISTMP].',
                             '', [newUserAccount:newUserAccount, reEnableTime:reEnableTime]))
                 }
             } else {
                 // account permanently disabled
-                eci.service.sync().name("org.moqui.impl.UserServices.incrementUserAccountFailedLogins")
+                eci.service.sync().name("org.moqui.impl.UserServices.increment#UserAccountFailedLogins")
                         .parameters((Map<String, Object>) [userId:newUserAccount.userId]).requireNewTransaction(true).call()
                 throw new DisabledAccountException(eci.resource.expand('Authenticate failed for user ${newUserAccount.username} because account is disabled and is not schedule to be automatically re-enabled [DISPRM].',
                         '', [newUserAccount:newUserAccount]))
             }
         }
 
+        Timestamp terminateDate = (Timestamp) newUserAccount.getNoCheckSimple("terminateDate")
+        if (terminateDate != (Timestamp) null && System.currentTimeMillis() > terminateDate.getTime()) {
+            throw new DisabledAccountException(eci.resource.expand('User account ${newUserAccount.username} was terminated at ${ec.l10n.format(newUserAccount.terminateDate, null)} [TERM].',
+                    '', [newUserAccount:newUserAccount]))
+        }
+
         return newUserAccount
     }
 
-    static void loginPostPassword(ExecutionContextImpl eci, EntityValue newUserAccount) {
+    static void loginPostPassword(ExecutionContextImpl eci, EntityValue newUserAccount, AuthenticationToken token) {
         // the password did match, but check a few additional things
+        String userId = newUserAccount.getNoCheckSimple("userId")
+
+        // check for require password change
         if ("Y".equals(newUserAccount.getNoCheckSimple("requirePasswordChange"))) {
             // NOTE: don't call incrementUserAccountFailedLogins here (don't need compounding reasons to stop access)
-            throw new CredentialsException(eci.resource.expand('Authenticate failed for user [${newUserAccount.username}] because account requires password change [PWDCHG].','',[newUserAccount:newUserAccount]))
+            throw new PasswordChangeRequiredException(eci.resource.expand('Authenticate failed for user [${newUserAccount.username}] because account requires password change [PWDCHG].','',[newUserAccount:newUserAccount]))
         }
         // check time since password was last changed, if it has been too long (user-facade.password.@change-weeks default 12) then fail
         if (newUserAccount.getNoCheckSimple("passwordSetDate") != null) {
@@ -120,6 +144,18 @@ class MoquiShiroRealm implements Realm, Authorizer {
                 }
             }
         }
+        // check if the user requires an additional authentication factor step
+        // do this after checking for require password change and expired password for better user experience
+        if (!(token instanceof ForceLoginToken)) {
+            boolean secondReqd = eci.ecfi.serviceFacade.sync().name("org.moqui.impl.UserServices.get#UserAuthcFactorRequired")
+                    .parameter("userId", userId).disableAuthz().call()?.secondFactorRequired ?: false
+            // if the user requires authentication, throw a SecondFactorRequiredException so that UserFacadeImpl.groovy can catch the error and perform the appropriate action.
+            if (secondReqd) {
+                throw new SecondFactorRequiredException(eci.ecfi.resource.expand('Authentication code required for user ${username}',
+                        '',[username:newUserAccount.getNoCheckSimple("username")]))
+            }
+        }
+
         // check ipAllowed if on UserAccount or any UserGroup a member of
         String clientIp = eci.userFacade.getClientIp()
         if (clientIp == null || clientIp.isEmpty()) {
@@ -191,7 +227,7 @@ class MoquiShiroRealm implements Realm, Authorizer {
         }
     }
 
-    static void loginAfterAlways(ExecutionContextImpl eci, String userId, String passwordUsed, boolean successful) {
+    static void loginSaveHistory(ExecutionContextImpl eci, String userId, String passwordUsed, boolean successful) {
         // track the UserLoginHistory, whether the above succeeded or failed (ie even if an exception was thrown)
         if (!eci.getSkipStats()) {
             MNode loginNode = eci.ecfi.confXmlRoot.first("user-facade").first("login")
@@ -204,13 +240,12 @@ class MoquiShiroRealm implements Realm, Authorizer {
                         visitId:eci.user.visitId, successfulLogin:(successful?"Y":"N")] as Map<String, Object>
                 if (!successful && loginNode.attribute("history-incorrect-password") != "false") ulhContext.passwordUsed = passwordUsed
 
-                ExecutionContextFactoryImpl ecfi = eci.ecfi
                 eci.runInWorkerThread({
                     try {
                         long recentUlh = eci.entity.find("moqui.security.UserLoginHistory").condition("userId", userId)
                                 .condition("fromDate", EntityCondition.GREATER_THAN, recentDate).disableAuthz().count()
                         if (recentUlh == 0) {
-                            ecfi.serviceFacade.sync().name("create", "moqui.security.UserLoginHistory")
+                            eci.ecfi.serviceFacade.sync().name("create", "moqui.security.UserLoginHistory")
                                     .parameters(ulhContext).disableAuthz().call()
                         } else {
                             if (logger.isDebugEnabled()) logger.debug("Not creating UserLoginHistory, found existing record for userId ${userId} and more recent than ${recentDate}")
@@ -252,7 +287,8 @@ class MoquiShiroRealm implements Realm, Authorizer {
                 }
             }
 
-            loginPostPassword(eci, newUserAccount)
+            // credentials matched
+            loginPostPassword(eci, newUserAccount, token)
 
             // at this point the user is successfully authenticated
             successful = true
@@ -262,7 +298,7 @@ class MoquiShiroRealm implements Realm, Authorizer {
                 ForceLoginToken flt = (ForceLoginToken) token
                 saveHistory = flt.saveHistory
             }
-            if (saveHistory) loginAfterAlways(eci, userId, token.credentials as String, successful)
+            if (saveHistory) loginSaveHistory(eci, userId, token.credentials as String, successful)
         }
 
         return info
@@ -301,7 +337,7 @@ class MoquiShiroRealm implements Realm, Authorizer {
     boolean isPermitted(PrincipalCollection principalCollection, String resourceAccess) {
         // String username = (String) principalCollection.primaryPrincipal
         // TODO: if we want to support other users than the current need to look them up here
-        return ArtifactExecutionFacadeImpl.isPermitted(resourceAccess, ecfi.eci)
+        return ArtifactExecutionFacadeImpl.isPermitted(resourceAccess, ecfi.getEci())
     }
 
     boolean[] isPermitted(PrincipalCollection principalCollection, String... resourceAccesses) {
@@ -342,7 +378,7 @@ class MoquiShiroRealm implements Realm, Authorizer {
 
     void checkPermission(PrincipalCollection principalCollection, String permission) {
         String username = (String) principalCollection.primaryPrincipal
-        if (UserFacadeImpl.hasPermission(username, permission, null, ecfi.eci)) {
+        if (UserFacadeImpl.hasPermission(username, permission, null, ecfi.getEci())) {
             throw new UnauthorizedException(ecfi.resource.expand('User ${username} does not have permission ${permission}','',[username:username,permission:permission]))
         }
     }
@@ -357,7 +393,7 @@ class MoquiShiroRealm implements Realm, Authorizer {
 
     boolean hasRole(PrincipalCollection principalCollection, String roleName) {
         String username = (String) principalCollection.primaryPrincipal
-        return UserFacadeImpl.isInGroup(username, roleName, null, ecfi.eci)
+        return UserFacadeImpl.isInGroup(username, roleName, null, ecfi.getEci())
     }
 
     boolean[] hasRoles(PrincipalCollection principalCollection, List<String> roleNames) {

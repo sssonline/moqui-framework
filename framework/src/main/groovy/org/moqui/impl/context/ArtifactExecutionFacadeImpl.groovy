@@ -14,6 +14,7 @@
 package org.moqui.impl.context
 
 import groovy.transform.CompileStatic
+import org.moqui.entity.EntityException
 import org.moqui.impl.entity.EntityConditionFactoryImpl
 import org.moqui.impl.entity.condition.EntityConditionImplBase
 
@@ -42,8 +43,9 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
     protected final static Logger logger = LoggerFactory.getLogger(ArtifactExecutionFacadeImpl.class)
 
     protected ExecutionContextImpl eci
-    protected LinkedList<ArtifactExecutionInfoImpl> artifactExecutionInfoStack = new LinkedList<ArtifactExecutionInfoImpl>()
-    protected LinkedList<ArtifactExecutionInfoImpl> artifactExecutionInfoHistory = new LinkedList<ArtifactExecutionInfoImpl>()
+    private ArrayDeque<ArtifactExecutionInfoImpl> artifactExecutionInfoStack = new ArrayDeque<ArtifactExecutionInfoImpl>(10)
+    private ArrayList<ArtifactExecutionInfoImpl> artifactExecutionInfoHistory = new ArrayList<ArtifactExecutionInfoImpl>(50)
+    private ArrayList<ArtifactExecutionInfo> aeiStackCache = (ArrayList<ArtifactExecutionInfo>) null
 
     // this is used by ScreenUrlInfo.isPermitted() which is called a lot, but that is transient so put here to have one per EC instance
     protected Map<String, Boolean> screenPermittedCache = null
@@ -90,7 +92,7 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
         if (!isPermitted(aeii, lastAeii, requiresAuthz, countTarpit, true, null)) {
             Deque<ArtifactExecutionInfo> curStack = getStack()
             StringBuilder warning = new StringBuilder()
-            warning.append("User ${eci.user.username ?: eci.user.userId} is not authorized for ${aeii.getActionDescription()} on ${aeii.getTypeDescription()} ${aeii.getName()}")
+            warning.append("User ${eci.user.username ?: eci.user.userId ?: '[No User]'} is not authorized for ${aeii.getActionDescription()} on ${aeii.getTypeDescription()} ${aeii.getName()}")
 
             ArtifactAuthorizationException e = new ArtifactAuthorizationException(warning.toString(), aeii, curStack)
             // end users see this message in vuet mode so better not to add all of this to the main message:
@@ -101,8 +103,12 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
             throw e
         }
 
+        // set the moquiTxId for all that make it onto the stack
+        aeii.setMoquiTxId(eci.transactionFacade.getTxStackInfo().moquiTxId)
+
         // NOTE: if needed the isPermitted method will set additional info in aeii
         this.artifactExecutionInfoStack.addFirst(aeii)
+        this.aeiStackCache = (ArrayList<ArtifactExecutionInfo>) null
     }
 
 
@@ -110,6 +116,8 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
     ArtifactExecutionInfo pop(ArtifactExecutionInfo aei) {
         try {
             ArtifactExecutionInfoImpl lastAeii = (ArtifactExecutionInfoImpl) artifactExecutionInfoStack.removeFirst()
+            this.aeiStackCache = (ArrayList<ArtifactExecutionInfo>) null
+
             // removed this for performance reasons, generally just checking the name is adequate
             // || aei.typeEnumId != lastAeii.typeEnumId || aei.actionEnumId != lastAeii.actionEnumId
             if (aei != null && !lastAeii.nameInternal.equals(aei.getName())) {
@@ -120,7 +128,8 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
             // set end time
             lastAeii.setEndTime()
             // count artifact hit (now done here instead of by each caller)
-            if (lastAeii.trackArtifactHit && lastAeii.internalAuthzWasRequired && lastAeii.isAccess)
+            // NOTE DEJ 20191229 removed condition where only artifacts requiring authz are counted: && lastAeii.internalAuthzWasRequired
+            if (lastAeii.trackArtifactHit && lastAeii.isAccess)
                 eci.ecfi.countArtifactHit(lastAeii.internalTypeEnum, lastAeii.actionDetail, lastAeii.nameInternal,
                         lastAeii.parameters, lastAeii.startTimeMillis, lastAeii.getRunningTimeMillisDouble(), lastAeii.outputSize)
             return lastAeii
@@ -132,9 +141,13 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
 
     @Override
     Deque<ArtifactExecutionInfo> getStack() {
-        Deque<ArtifactExecutionInfo> newStackDeque = new LinkedList<>()
-        newStackDeque.addAll(this.artifactExecutionInfoStack)
-        return newStackDeque
+        return new ArrayDeque<ArtifactExecutionInfo>(this.artifactExecutionInfoStack)
+    }
+    @Override
+    ArrayList<ArtifactExecutionInfo> getStackArray() {
+        if (aeiStackCache != null) return aeiStackCache
+        aeiStackCache = new ArrayList<ArtifactExecutionInfo>(this.artifactExecutionInfoStack)
+        return aeiStackCache
     }
     String getStackNameString() {
         StringBuilder sb = new StringBuilder()
@@ -157,6 +170,10 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
         StringWriter sw = new StringWriter()
         for (ArtifactExecutionInfo aei in artifactExecutionInfoHistory) aei.print(sw, 0, true)
         return sw.toString()
+    }
+
+    ArtifactExecutionInfoImpl.ArtifactTypeStats getArtifactTypeStats() {
+        return ArtifactExecutionInfoImpl.getArtifactTypeStats(artifactExecutionInfoHistory)
     }
 
     void logProfilingDetail() {
@@ -247,7 +264,7 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
     }
 
     boolean isPermitted(ArtifactExecutionInfoImpl aeii, ArtifactExecutionInfoImpl lastAeii, boolean requiresAuthz, boolean countTarpit,
-                        boolean isAccess, LinkedList<ArtifactExecutionInfoImpl> currentStack) {
+                        boolean isAccess, ArrayDeque<ArtifactExecutionInfoImpl> currentStack) {
         ArtifactExecutionInfo.ArtifactType artifactTypeEnum = aeii.internalTypeEnum
         boolean isEntity = ArtifactExecutionInfo.AT_ENTITY.is(artifactTypeEnum)
         // right off record whether authz is required and is access
@@ -313,8 +330,8 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
                 }
             }
 
-            // if ("AT_XML_SCREEN" == aeii.typeEnumId && aeii.getName().contains("FOO"))
-            //     logger.warn("TOREMOVE for aeii [${aeii}] artifact isPermitted aacvList: ${aacvList}; aacvCond: ${aacvCond}")
+            // if ((ArtifactExecutionInfo.AT_XML_SCREEN.is(artifactTypeEnum) || ArtifactExecutionInfo.AT_XML_SCREEN_TRANS.is(artifactTypeEnum)) && aeii.getName().contains("recordChange"))
+            //     logger.warn("TOREMOVE for aeii [${aeii}] artifact isPermitted\naacvList: ${aacvList}\norigAacvList: ${origAacvList.join("\n")}")
 
             int aacvListSize = aacvList.size()
             for (int i = 0; i < aacvListSize; i++) {
@@ -512,7 +529,7 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
                         .useCache(true).list()
                         .filterByCondition(efi.getConditionFactory().makeCondition('releaseDateTime', ComparisonOperator.GREATER_THAN, ufi.getNowTimestamp()), true)
                 if (tarpitLockList.size() > 0) {
-                    Timestamp releaseDateTime = tarpitLockList.first.getTimestamp('releaseDateTime')
+                    Timestamp releaseDateTime = tarpitLockList.get(0).getTimestamp('releaseDateTime')
                     int retryAfterSeconds = ((releaseDateTime.getTime() - System.currentTimeMillis())/1000).intValue()
                     throw new ArtifactTarpitException("User ${userId} has accessed ${aeii.getTypeDescription()} ${aeii.getName()} too many times and may not again until ${eci.l10nFacade.format(releaseDateTime, 'yyyy-MM-dd HH:mm:ss')} (retry after ${retryAfterSeconds} seconds)".toString(), retryAfterSeconds)
                 }
@@ -531,10 +548,12 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
 
     static class AuthzFilterInfo {
         String entityFilterSetId
+        EntityValue entityFilterSet
         EntityValue entityFilter
         Map<String, ArrayList<MNode>> memberFieldAliases
-        AuthzFilterInfo(String entityFilterSetId, EntityValue entityFilter, Map<String, ArrayList<MNode>> memberFieldAliases) {
-            this.entityFilterSetId = entityFilterSetId
+        AuthzFilterInfo(EntityValue entityFilterSet, EntityValue entityFilter, Map<String, ArrayList<MNode>> memberFieldAliases) {
+            this.entityFilterSet = entityFilterSet
+            entityFilterSetId = (String) entityFilterSet?.getNoCheckSimple("entityFilterSetId")
             this.entityFilter = entityFilter
             this.memberFieldAliases = memberFieldAliases
         }
@@ -557,7 +576,7 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
         if (findEntityName.startsWith("moqui.")) return null
 
         // find applicable EntityFilter records
-        EntityList artifactAuthzFilterList = eci.entity.find("moqui.security.ArtifactAuthzFilter")
+        EntityList artifactAuthzFilterList = eci.entityFacade.find("moqui.security.ArtifactAuthzFilter")
                 .condition("artifactAuthzId", aacv.artifactAuthzId).disableAuthz().useCache(true).list()
 
         if (artifactAuthzFilterList == null) return null
@@ -568,12 +587,31 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
         for (int i = 0; i < authzFilterSize; i++) {
             EntityValue artifactAuthzFilter = (EntityValue) artifactAuthzFilterList.get(i)
             String entityFilterSetId = (String) artifactAuthzFilter.getNoCheckSimple("entityFilterSetId")
+            String authzApplyCond = (String) artifactAuthzFilter.getNoCheckSimple("applyCond")
+
+            EntityValue entityFilterSet = eci.entityFacade.find("moqui.security.EntityFilterSet")
+                    .condition("entityFilterSetId", entityFilterSetId).disableAuthz().useCache(true).one()
+            String setApplyCond = (String) entityFilterSet.getNoCheckSimple("applyCond")
+
+            boolean hasAuthzCond = authzApplyCond != null && !authzApplyCond.isEmpty()
+            boolean hasSetCond = setApplyCond != null && !setApplyCond.isEmpty()
+            if (hasAuthzCond || hasSetCond) {
+                // for evaluating apply conditions add user context to ec.context
+                // this might be more efficient outside the loop, or perhaps even expect it to be in place outside this method
+                //     (fine for filterFindForUser(), cumbersome for other uses of this method)
+                eci.contextStack.push(eci.userFacade.context)
+                try {
+                    if (hasAuthzCond && !eci.resourceFacade.condition(authzApplyCond, null)) continue
+                    if (hasSetCond && !eci.resourceFacade.condition(setApplyCond, null)) continue
+                } finally {
+                    eci.contextStack.pop()
+                }
+            }
 
             // NOTE: at this level the results could be cached, but worth it? EntityFilter entity list cached already,
             //     some processing for view-entity but mostly only if entityAliasUsedSet, and could only cache if !entityAliasUsedSet
-            EntityList entityFilterList = eci.entity.find("moqui.security.EntityFilter")
-                    .condition("entityFilterSetId", entityFilterSetId)
-                    .disableAuthz().useCache(true).list()
+            EntityList entityFilterList = eci.entityFacade.find("moqui.security.EntityFilter")
+                    .condition("entityFilterSetId", entityFilterSetId).disableAuthz().useCache(true).list()
 
             if (entityFilterList == null) continue
             int entFilterSize = entityFilterList.size()
@@ -627,7 +665,7 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
 
                 // if we got to this point we found a matching filter
                 if (authzFilterInfoList == (ArrayList<AuthzFilterInfo>) null) authzFilterInfoList = new ArrayList<>()
-                authzFilterInfoList.add(new AuthzFilterInfo(entityFilterSetId, entityFilter, memberFieldAliases))
+                authzFilterInfoList.add(new AuthzFilterInfo(entityFilterSet, entityFilter, memberFieldAliases))
             }
         }
 
@@ -679,7 +717,10 @@ class ArtifactExecutionFacadeImpl implements ArtifactExecutionFacade {
                     // logger.info("Query on ${findEntityName} added authz filter conditions: ${entCond}")
                     // logger.info("Query on ${findEntityName} find: ${efb.toString()}")
                 } catch (Exception e) {
-                    logger.warn("Error adding authz entity filter ${entityFilter.getNoCheckSimple("entityFilterId")} condition: ${e.toString()}")
+                    String entityFilterId = (String) entityFilter.getNoCheckSimple("entityFilterId")
+                    logger.error("Error adding authz entity filter ${entityFilterId} condition: ${e.toString()}")
+                    if (!"Y".equals(authzFilterInfo.entityFilterSet.getNoCheckSimple("allowMissingAlias")))
+                        throw new ArtifactAuthorizationException("Could not apply authorized data filter so not doing query, required field alias missing", e)
                 }
             }
         } finally {

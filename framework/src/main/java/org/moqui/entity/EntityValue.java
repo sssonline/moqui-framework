@@ -37,6 +37,8 @@ public interface EntityValue extends Map<String, Object>, Externalizable, Compar
     boolean isModified();
     /** Returns true if the field has been modified */
     boolean isFieldModified(String name);
+    /** Treat field as modified for update() even if not to force a resend to the DB */
+    EntityValue touchField(String name);
     /** Returns true if a value for the field is set, even if it is null */
     boolean isFieldSet(String name);
     /** Returns true if the name is a valid field name for the entity this is a value of,
@@ -73,6 +75,7 @@ public interface EntityValue extends Map<String, Object>, Externalizable, Compar
     boolean containsPrimaryKey();
 
     Map<String, Object> getPrimaryKeys();
+    String getPrimaryKeysString();
 
     /** Sets the named field to the passed value, even if the value is null
      * @param name The field name to set
@@ -261,6 +264,7 @@ public interface EntityValue extends Map<String, Object>, Externalizable, Compar
     boolean checkFks(boolean insertDummy) throws EntityException;
     /** Compare this value to the database, adding messages about fields that differ or if the record doesn't exist to messages. */
     long checkAgainstDatabase(List<String> messages);
+    long checkAgainstDatabaseInfo(List<Map<String, Object>> diffInfoList, List<String> messages, String location);
 
     /** Makes an XML Element object with an attribute for each field of the entity
      * @param document The XML Document that the new Element will be part of

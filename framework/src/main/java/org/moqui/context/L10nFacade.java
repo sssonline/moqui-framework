@@ -13,7 +13,10 @@
  */
 package org.moqui.context;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
+import java.util.Calendar;
 import java.util.Locale;
 import java.util.TimeZone;
 
@@ -38,22 +41,28 @@ public interface L10nFacade {
      * @param uomId The uomId (ISO currency code), required.
      * @param fractionDigits Number of digits after the decimal point to display. If null defaults to number defined
      *                       by java.util.Currency.defaultFractionDigits() for the specified currency in uomId.
+     * @param locale Locale to use for formatting.
+     * @param hideSymbol option to hide the Symbol of the currency and only display the number formatted according
+     *                   to locale.
      * @return The formatted currency amount.
      */
+    String formatCurrency(Object amount, String uomId, Integer fractionDigits, Locale locale, boolean hideSymbol);
+    String formatCurrency(Object amount, String uomId, Integer fractionDigits, Locale locale);
     String formatCurrency(Object amount, String uomId, Integer fractionDigits);
     String formatCurrency(Object amount, String uomId);
-    String formatCurrency(Object amount, String uomId, Integer fractionDigits, Locale locale);
+    String formatCurrencyNoSymbol(Object amount, String uomId);
 
     /** Round currency according to the currency's specified amount of digits and rounding method.
      * @param amount The amount in BigDecimal to be rounded.
      * @param uomId The currency uomId (ISO currency code), required
      * @param precise A boolean indicating whether the currency should be treated with an additional digit
-     * @param roundingMethod Rounding method to use (e.g. BigDecimal.ROUND_HALF_UP)
+     * @param roundingMode Rounding method to use (e.g. RoundingMode.HALF_UP)
      * @return The rounded currency amount.
      */
-    java.math.BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId, boolean precise, int roundingMethod);
-    java.math.BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId, boolean precise);
-    java.math.BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId);
+    BigDecimal roundCurrency(BigDecimal amount, String uomId, boolean precise, RoundingMode roundingMode);
+    BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId, boolean precise, int roundingMethod);
+    BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId, boolean precise);
+    BigDecimal roundCurrency(java.math.BigDecimal amount, String uomId);
 
     /** Format a Number, Timestamp, Date, Time, or Calendar object using the given format string. If no format string
      * is specified the default for the user's locale and time zone will be used.
@@ -70,6 +79,8 @@ public interface L10nFacade {
     Timestamp parseTimestamp(String input, String format);
     Timestamp parseTimestamp(String input, String format, Locale locale, TimeZone timeZone);
     java.util.Calendar parseDateTime(String input, String format);
+    String formatDateTime(Calendar input, String format, Locale locale, TimeZone tz);
 
     java.math.BigDecimal parseNumber(String input, String format);
+    String formatNumber(Number input, String format, Locale locale);
 }

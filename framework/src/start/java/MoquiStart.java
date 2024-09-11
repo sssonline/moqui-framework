@@ -17,6 +17,8 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.security.cert.Certificate;
@@ -87,17 +89,21 @@ public class MoquiStart {
             System.out.println("    components=<name>[,<name>] -- Component names to load for data types; if none specified loads from all");
             System.out.println("    location=<location> --------- Location of data file to load");
             System.out.println("    timeout=<seconds> ----------- Transaction timeout for each file, defaults to 600 seconds (10 minutes)");
+            System.out.println("    no-fk-create ---------------- Don't create foreign-keys, for empty database to avoid referential integrity errors");
             System.out.println("    dummy-fks ------------------- Use dummy foreign-keys to avoid referential integrity errors");
             System.out.println("    use-try-insert -------------- Try insert and update on error instead of checking for record first");
             System.out.println("    disable-eeca ---------------- Disable Entity ECA rules");
             System.out.println("    disable-audit-log ----------- Disable Entity Audit Log");
-            System.out.println("    raw ------------------------- Short for dummy-fks, use-try-insert, disable-eeca, disable-audit-log");
+            System.out.println("    disable-data-feed ----------- Disable Entity DataFeed");
+            System.out.println("    raw ------------------------- For raw data load to an empty database; short for no-fk-create, use-try-insert, disable-eeca, disable-audit-log, disable-data-feed");
             System.out.println("    conf=<moqui.conf> ----------- The Moqui Conf XML file to use, overrides other ways of specifying it");
+            System.out.println("    no-run-es ------------------- Don't Try starting and stopping ElasticSearch in runtime/elasticsearch");
             System.out.println("    If no -types or -location argument is used all known data files of all types will be loaded.");
             System.out.println("[default] ---- Run embedded Jetty server");
             System.out.println("    port=<port> ---------------- The http listening port. Default is 8080");
             System.out.println("    threads=<max threads> ------ Maximum number of threads. Default is 100");
             System.out.println("    conf=<moqui.conf> ---------- The Moqui Conf XML file to use, overrides other ways of specifying it");
+            System.out.println("    no-run-es ------------------- Don't Try starting and stopping OpenSearch in runtime/opensearch or ElasticSearch in runtime/elasticsearch");
             System.out.println("");
             System.exit(0);
         }
@@ -109,6 +115,12 @@ public class MoquiStart {
             URL wrapperUrl = cs.getLocation();
             File wrapperFile = new File(wrapperUrl.toURI());
             if (wrapperFile.isDirectory()) isInWar = false;
+            /* to accommodate an executable start.jar file inside the executable WAR file:
+            if (isInWar && wrapperFile.getName().equals("start.jar")) {
+                isInWar = false;
+                // wrapperFile = wrapperFile.getParentFile();
+            }
+            */
         } catch (Exception e) {
             System.out.println("Error checking class wrapper: " + e.toString());
         }
@@ -130,23 +142,29 @@ public class MoquiStart {
             Thread.currentThread().setContextClassLoader(moquiStartLoader);
             // Runtime.getRuntime().addShutdownHook(new MoquiShutdown(null, null, moquiStartLoader));
             initSystemProperties(moquiStartLoader, false, argMap);
+            Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
 
+            boolean successfullLoad = true;
             try {
                 System.out.println("Loading data with args " + argMap);
                 Class<?> c = moquiStartLoader.loadClass("org.moqui.Moqui");
                 Method m = c.getMethod("loadData", Map.class);
                 m.invoke(null, argMap);
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                successfullLoad = false;
                 System.out.println("Error loading or running Moqui.loadData with args [" + argMap + "]: " + e.toString());
                 e.printStackTrace();
+            } finally {
+                checkStopElasticSearch(esProcess);
+                System.exit(successfullLoad ? 0 : 1);
             }
-            System.exit(0);
         }
 
         // ===== Done trying specific commands, so load the embedded server
 
         // Get a start loader with loadWebInf=false since the container will load those we don't want to here (would be on classpath twice)
-        StartClassLoader moquiStartLoader = new StartClassLoader(reportJarsUnused);
+        // NOTE DEJ20210520: now always using StartClassLoader because of breaking classloader changes in 9.4.37 (likely from https://github.com/eclipse/jetty.project/pull/5894)
+        StartClassLoader moquiStartLoader = new StartClassLoader(true);
         Thread.currentThread().setContextClassLoader(moquiStartLoader);
 
         // NOTE: not using MoquiShutdown hook any more, let Jetty stop everything
@@ -157,6 +175,13 @@ public class MoquiStart {
 
         initSystemProperties(moquiStartLoader, false, argMap);
         String runtimePath = System.getProperty("moqui.runtime");
+
+        Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
+        if (esProcess != null) {
+            Thread shutdownHook = new ElasticShutdown(esProcess);
+            shutdownHook.setDaemon(true);
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+        }
 
         try {
             int port = 8080;
@@ -193,13 +218,21 @@ public class MoquiStart {
             Class<?> httpConnectionFactoryClass = moquiStartLoader.loadClass("org.eclipse.jetty.server.HttpConnectionFactory");
 
             Class<?> scHandlerClass = moquiStartLoader.loadClass("org.eclipse.jetty.servlet.ServletContextHandler");
-            Class<?> wsInitializerClass = moquiStartLoader.loadClass("org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer");
+            Class<?> wsInitializerClass = moquiStartLoader.loadClass("org.eclipse.jetty.websocket.javax.server.config.JavaxWebSocketServletContainerInitializer");
+            Class<?> wsInitializerConfiguratorClass = moquiStartLoader.loadClass("org.eclipse.jetty.websocket.javax.server.config.JavaxWebSocketServletContainerInitializer$Configurator");
 
             Class<?> gzipHandlerClass = moquiStartLoader.loadClass("org.eclipse.jetty.server.handler.gzip.GzipHandler");
             Class<?> handlerWrapperClass = moquiStartLoader.loadClass("org.eclipse.jetty.server.handler.HandlerWrapper");
 
             Object server = serverClass.getConstructor().newInstance();
             Object httpConfig = httpConfigurationClass.getConstructor().newInstance();
+
+            // add ForwardedRequestCustomizer to handle Forwarded and X-Forwarded-* HTTP Request Headers
+            // see https://www.eclipse.org/jetty/javadoc/jetty-9/org/eclipse/jetty/server/ForwardedRequestCustomizer.html
+            // NOTE: this is the only way Jetty knows about HTTPS/SSL so is needed, but the problem is these headers
+            //     are easily spoofed; this isn't too bad for X-Proxied-Https and X-Forwarded-Proto, and those are needed
+            // TODO: at least find some way to skip X-Forwarded-For: current behavior with new client-ip-header setting
+            //     is it will use that but if no client IP found that way it gets it from Jetty, which gets it from X-Forwarded-For, opening to spoofing
             Object forwardedRequestCustomizer = forwardedRequestCustomizerClass.getConstructor().newInstance();
             httpConfigurationClass.getMethod("addCustomizer", customizerClass).invoke(httpConfig, forwardedRequestCustomizer);
 
@@ -246,10 +279,25 @@ public class MoquiStart {
             }
             serverClass.getMethod("setHandler", handlerClass).invoke(server, webapp);
 
-            if (reportJarsUnused) webappClass.getMethod("setClassLoader", ClassLoader.class).invoke(webapp, moquiStartLoader);
+            // NOTE DEJ20210520: now always using StartClassLoader because of breaking classloader changes in 9.4.37 (likely from https://github.com/eclipse/jetty.project/pull/5894)
+            webappClass.getMethod("setClassLoader", ClassLoader.class).invoke(webapp, moquiStartLoader);
+
+            // handle webapp_session_cookie_max_age with setInitParameter (1209600 seconds is about 2 weeks 60 * 60 * 24 * 14)
+            String sessionMaxAge = System.getenv("webapp_session_cookie_max_age");
+            if (sessionMaxAge != null && !sessionMaxAge.isEmpty()) {
+                Integer maxAgeInt = null;
+                try { maxAgeInt = Integer.parseInt(sessionMaxAge); }
+                catch (Exception e) { System.out.println("Found webapp_session_cookie_max_age env var with invalid number, ignoring: " + sessionMaxAge); }
+
+                if (maxAgeInt != null) {
+                    System.out.println("Setting Servlet Session Max Age based on webapp_session_cookie_max_age " + maxAgeInt);
+                    webappClass.getMethod("setInitParameter", String.class, String.class)
+                            .invoke(webapp, "org.eclipse.jetty.servlet.MaxAge", maxAgeInt.toString());
+                }
+            }
 
             // WebSocket
-            Object wsContainer = wsInitializerClass.getMethod("configureContext", scHandlerClass).invoke(null, webapp);
+            Object wsContainer = wsInitializerClass.getMethod("configure", scHandlerClass, wsInitializerConfiguratorClass).invoke(null, webapp, null);
             webappClass.getMethod("setAttribute", String.class, Object.class).invoke(webapp, "javax.websocket.server.ServerContainer", wsContainer);
 
             // GzipHandler
@@ -442,6 +490,54 @@ public class MoquiStart {
         if (confPath != null && !confPath.isEmpty()) System.setProperty("moqui.conf", confPath);
     }
 
+    private static Process checkStartElasticSearch() {
+        String runtimePath = System.getProperty("moqui.runtime");
+        File osDir = new File(runtimePath + "/opensearch");
+        boolean osDirExists = osDir.exists();
+        String baseName = osDirExists ? "opensearch" : "elasticsearch";
+        String workDir = runtimePath + "/" + baseName;
+        if (!new File(workDir + "/bin").exists()) return null;
+        if (new File(workDir + "/pid").exists()) {
+            System.out.println((osDirExists ? "OpenSearch" : "ElasticSearch") + " install found in " + workDir + ", pid file found so not starting");
+            return null;
+        }
+        String javaHome = System.getProperty("java.home");
+        System.out.println("Starting " + (osDirExists ? "OpenSearch" : "ElasticSearch") + " install found in " + workDir + ", pid file not found (JDK: " + javaHome + ")");
+        boolean isWindows = System.getProperty("os.name").toLowerCase().startsWith("windows");
+        try {
+            String[] command;
+            if (isWindows) {
+                command = new String[] {"cmd.exe", "/c", "bin\\" + baseName + ".bat"};
+            } else {
+                command = new String[]{"./bin/" + baseName};
+                try {
+                    boolean elasticsearchOwner = Files.getOwner(Paths.get(runtimePath, baseName)).getName().equals(baseName);
+                    boolean suAble = Runtime.getRuntime().exec(new String[]{"/bin/su", "-c", "/bin/true", baseName}).waitFor() == 0;
+                    if (elasticsearchOwner && suAble) command = new String[]{"su", "-c", "./bin/" + baseName, baseName};
+                } catch (IOException e) {}
+            }
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            pb.directory(new File(workDir));
+            pb.environment().put("JAVA_HOME", javaHome);
+            pb.inheritIO();
+            Process esProcess = pb.start();
+            System.setProperty("moqui.elasticsearch.started", "true");
+            return esProcess;
+        } catch (Exception e) {
+            System.out.println("Error starting " + (osDirExists ? "OpenSearch" : "ElasticSearch") + " in " + workDir + ": " + e);
+            return null;
+        }
+    }
+    private static void checkStopElasticSearch(Process esProcess) {
+        if (esProcess != null) esProcess.destroy();
+    }
+    private static class ElasticShutdown extends Thread {
+        final Process esProcess;
+        ElasticShutdown(Process esProcess) { super(); this.esProcess = esProcess; }
+        @Override public void run() { esProcess.destroy(); }
+    }
+
     private static class MoquiShutdown extends Thread {
         final Method callMethod;
         final Object callObject;
@@ -515,6 +611,14 @@ public class MoquiStart {
                 wrapperUrl = cs.getLocation();
                 File wrapperFile = new File(wrapperUrl.toURI());
                 isInWar = !wrapperFile.isDirectory();
+
+                /* to accommodate an executable start.jar file inside the executable WAR file:
+                if (isInWar && wrapperFile.getName().equals("start.jar")) {
+                    isInWar = false;
+                    wrapperFile = wrapperFile.getParentFile();
+                    wrapperUrl = wrapperFile.toURI().toURL();
+                }
+                */
 
                 if (isInWar) {
                     JarFile outerFile = new JarFile(wrapperFile);
@@ -742,17 +846,19 @@ public class MoquiStart {
         }
 
         private void definePackage(String className, JarFile jarFile) throws IllegalArgumentException {
-            Manifest mf;
+            Manifest mf = null;
             try {
                 mf = jarFile.getManifest();
             } catch (IOException e) {
-                // use default manifest
-                mf = new Manifest();
+                System.out.println("Error getting manifest from " + jarFile.getName() + ": " + e.toString());
             }
+            // if no manifest use default
             if (mf == null) mf = new Manifest();
+
             int dotIndex = className.lastIndexOf('.');
             String packageName = dotIndex > 0 ? className.substring(0, dotIndex) : "";
-            if (getPackage(packageName) == null) {
+            // NOTE: for Java 11 changed getPackage() to getDefinedPackage(), can't do before because getDefinedPackage() doesn't exist in Java 8
+            if (getDefinedPackage(packageName) == null) {
                 definePackage(packageName,
                         mf.getMainAttributes().getValue(Attributes.Name.SPECIFICATION_TITLE),
                         mf.getMainAttributes().getValue(Attributes.Name.SPECIFICATION_VERSION),

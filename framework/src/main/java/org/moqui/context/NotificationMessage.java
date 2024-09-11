@@ -38,6 +38,9 @@ public interface NotificationMessage extends java.io.Serializable {
     NotificationMessage topic(String topic);
     String getTopic();
 
+    NotificationMessage subTopic(String subTopic);
+    String getSubTopic();
+
     /** Set the message as a JSON String. The top-level should be a Map (JSON Object).
      * @param messageJson The message as a JSON string containing a Map (JSON Object)
      * @return Self-reference for convenience
@@ -69,12 +72,20 @@ public interface NotificationMessage extends java.io.Serializable {
     NotificationMessage showAlert(boolean show);
     /** Show an alert for this notification? If not set and topic has a NotificationTopic record will default to value there */
     boolean isShowAlert();
+    NotificationMessage alertNoAutoHide(boolean noAutoHide);
+    boolean isAlertNoAutoHide();
+
+    NotificationMessage persistOnSend(Boolean persist);
+    boolean isPersistOnSend();
 
     NotificationMessage emailTemplateId(String id);
     String getEmailTemplateId();
 
-    NotificationMessage persistOnSend(boolean persist);
-    boolean isPersistOnSend();
+    NotificationMessage emailMessageSave(Boolean save);
+    boolean isEmailMessageSave();
+
+    /** Call after send() to get emailMessageId values (if emailMessageSave is true) */
+    Map<String, String> getEmailMessageIdByUserId();
 
     /** Send this Notification Message.
      * @param persist If true this is persisted and message received is tracked. If false this is sent to active topic

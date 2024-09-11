@@ -101,8 +101,9 @@ public interface UserFacade {
 
     /** Authenticate a user and make active using a login key */
     boolean loginUserKey(String loginKey);
-    /** Get a login key for the active user. */
+    /** Get a login key for the active user. By default expires in the number of hours configured in the Conf XML file in: user-facade.login-key.@expire-hours */
     String getLoginKey();
+    String getLoginKey(float expireHours);
 
     /** If no user is logged in consider an anonymous user logged in. For internal purposes to run things that require authentication. */
     boolean loginAnonymousIfNoUser();
@@ -144,6 +145,6 @@ public interface UserFacade {
     /** @return The current visit (aka session; from the Visit entity). Depending on the artifact being executed this may be null. */
     EntityValue getVisit();
     String getVisitorId();
-    /** @return Client IP address from HTTP request or X-Forwarded-For header */
+    /** @return Client IP address from HTTP request or the configured client IP header (like X-Forwarded-For) */
     String getClientIp();
 }

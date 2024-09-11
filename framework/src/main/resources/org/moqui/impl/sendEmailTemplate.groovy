@@ -13,8 +13,8 @@
  */
 
 /*
-    JavaMail API Documentation at: https://java.net/projects/javamail/pages/Home
-    For JavaMail JavaDocs see: https://javamail.java.net/nonav/docs/api/index.html
+JavaMail API Documentation at: https://java.net/projects/javamail/pages/Home
+For JavaMail JavaDocs see: https://javamail.java.net/nonav/docs/api/index.html
  */
 
 import org.apache.commons.mail.DefaultAuthenticator
@@ -35,7 +35,6 @@ Logger logger = LoggerFactory.getLogger("org.moqui.impl.sendEmailTemplate")
 ExecutionContextImpl ec = context.ec
 
 try {
-
     // logger.info("sendEmailTemplate with emailTemplateId [${emailTemplateId}], bodyParameters [${bodyParameters}]")
 
     // add the bodyParameters to the context so they are available throughout this script
@@ -55,10 +54,12 @@ try {
         if (emailTemplate.bccAddresses) bccAddresses = bccAddresses + "," + ec.resource.expand((String) emailTemplate.bccAddresses, null)
     } else { bccAddresses = emailTemplate.bccAddresses }
 
-    // prepare the fromAddress, fromName, subject; no type or def so that they go into the context for templates
+    // prepare the fromAddress, fromName, subject, etc; no type or def so that they go into the context for templates
     fromAddress = ec.resource.expand((String) emailTemplate.fromAddress, "")
     fromName = ec.resource.expand((String) emailTemplate.fromName, "")
     subject = ec.resource.expand((String) emailTemplate.subject, "")
+    webappName = (String) emailTemplate.webappName ?: "webroot"
+    webHostName = (String) emailTemplate.webHostName
 
     // create an moqui.basic.email.EmailMessage record with info about this sent message
     // NOTE: can do anything with? purposeEnumId
@@ -75,13 +76,13 @@ try {
 
     // prepare the html message
     def bodyRender = ec.screen.makeRender().rootScreen((String) emailTemplate.bodyScreenLocation)
-            .webappName((String) emailTemplate.webappName).renderMode("html")
+            .webappName(webappName).renderMode("html")
     String bodyHtml = bodyRender.render()
 
     // prepare the alternative plain text message
     // render screen with renderMode=text for this
     def bodyTextRender = ec.screen.makeRender().rootScreen((String) emailTemplate.bodyScreenLocation)
-            .webappName((String) emailTemplate.webappName).renderMode("text")
+            .webappName(webappName).renderMode("text")
     String bodyText = bodyTextRender.render()
 
     if (emailMessageId) {
@@ -97,7 +98,7 @@ try {
     if (emailServer == null) ec.message.addError(ec.resource.expand('No EmailServer record found for EmailTemplate ${emailTemplateId}',''))
     if (!fromAddress) ec.message.addError(ec.resource.expand('From address is empty for EmailTemplate ${emailTemplateId}',''))
     if (ec.message.hasError()) {
-        logger.info("Error sending email: ${ec.message.getErrorsString()}\nbodyHtml:\n${bodyHtml}\nbodyText:\n${bodyText}")
+        logger.info("Error sending email: ${ec.message.getErrorsString()}\nsubject: ${subject}\nbodyHtml:\n${bodyHtml}\nbodyText:\n${bodyText}")
         if (emailMessageId) logger.info("Email with error saved as Ready in EmailMessage [${emailMessageId}]")
         return
     }
@@ -107,13 +108,13 @@ try {
         return
     }
 
-    String host = emailServer.smtpHost
-    int port = (emailServer.smtpPort ?: "25") as int
+    String smtpHost = emailServer.smtpHost
+    int smtpPort = (emailServer.smtpPort ?: "25") as int
 
     HtmlEmail email = new HtmlEmail()
     email.setCharset("utf-8")
-    email.setHostName(host)
-    email.setSmtpPort(port)
+    email.setHostName(smtpHost)
+    email.setSmtpPort(smtpPort)
     if (emailServer.mailUsername) {
         email.setAuthenticator(new DefaultAuthenticator((String) emailServer.mailUsername, (String) emailServer.mailPassword))
         // logger.info("Set user=${emailServer.mailUsername}, password=${emailServer.mailPassword}")
@@ -124,7 +125,7 @@ try {
     }
     if (emailServer.smtpSsl == "Y") {
         email.setSSLOnConnect(true)
-        email.setSslSmtpPort(port as String)
+        email.setSslSmtpPort(smtpPort as String)
         // email.setSSLCheckServerIdentity(true)
     }
 
@@ -139,16 +140,42 @@ try {
     }
     if (emailTemplate?.bounceAddress) email.setBounceAddress(ec.resource.expand((String) emailTemplate.bounceAddress, null))
 
+    // prep list of allowed to domains, if configured
+    String allowedToDomains = emailServer.allowedToDomains
+    ArrayList<String> toDomainList = null
+    List<String> skippedToAddresses = null
+    if (allowedToDomains) {
+        toDomainList = new ArrayList<>(allowedToDomains.split(",").collect({ it.trim() }))
+        skippedToAddresses = []
+    }
+
     // set to, cc, bcc addresses
     def toList = ((String) toAddresses).split(",")
-    for (toAddress in toList) email.addTo(toAddress.trim())
+    for (toAddress in toList) {
+        if (isDomainAllowed(toAddress, toDomainList)) email.addTo(toAddress.trim())
+        else skippedToAddresses.add(toAddress)
+    }
     if (ccAddresses) {
         def ccList = ((String) ccAddresses).split(",")
-        for (ccAddress in ccList) email.addCc(ccAddress.trim())
+        for (ccAddress in ccList) {
+            if (isDomainAllowed(ccAddress, toDomainList)) email.addCc(ccAddress.trim())
+            else skippedToAddresses.add(ccAddress)
+        }
     }
     if (bccAddresses) {
         def bccList = ((String) bccAddresses).split(",")
-        for (def bccAddress in bccList) email.addBcc(bccAddress.trim())
+        for (def bccAddress in bccList) {
+            if (isDomainAllowed(bccAddress, toDomainList)) email.addBcc(bccAddress.trim())
+            else skippedToAddresses.add(bccAddress)
+        }
+    }
+
+    if (!email.getToAddresses()) {
+        logger.warn("Not sending EmailMessage ${emailMessageId} for Template ${emailTemplateId} with no To Addresses; To, CC, BCC addresses skipped because domain not allowed: ${skippedToAddresses} allowed domains: ${toDomainList}")
+        ec.message.addMessage("Not sending email message with no To Address; address(es) skipped because domain not allowed: ${skippedToAddresses}", "warning")
+        return
+    } else if (skippedToAddresses) {
+        logger.warn("Sending EmailMessage ${emailMessageId} for Template ${emailTemplateId} to remaining To Address(es) ${email.getToAddresses()}; some To, CC, BCC addresses skipped because domain not allowed: ${skippedToAddresses} allowed domains: ${toDomainList}")
     }
 
     // set the html message
@@ -157,6 +184,31 @@ try {
     if (bodyText) email.setTextMsg(bodyText)
     //email.setTextMsg("Your email client does not support HTML messages")
 
+    // parameter attachments
+    if (attachments instanceof List) for (Map attachmentInfo in attachments) {
+        String filename = ec.resourceFacade.expand((String) attachmentInfo.fileName, null)
+        if (attachmentInfo.contentText) {
+            String mimeType = (String) attachmentInfo.contentType ?: ec.resourceFacade.getContentType(filename) ?: "text/plain"
+            DataSource dataSource = new ByteArrayDataSource(attachmentInfo.contentText.toString(), mimeType)
+            email.attach(dataSource, filename, "")
+        } else if (attachmentInfo.contentBytes) {
+            String mimeType = (String) attachmentInfo.contentType ?: ec.resourceFacade.getContentType(filename) ?: "application/octet-stream"
+            DataSource dataSource = new ByteArrayDataSource((byte[]) attachmentInfo.contentBytes, mimeType)
+            email.attach(dataSource, (String) attachmentInfo.fileName, "")
+        } else if (attachmentInfo.screenRenderMode && (attachmentInfo.attachmentLocation || attachmentInfo.screenPath)) {
+            renderScreenAttachment(emailTemplate, email, ec, logger, filename,
+                    (String) attachmentInfo.screenRenderMode, (String) attachmentInfo.attachmentLocation,
+                    (String) attachmentInfo.screenPath, (String) attachmentInfo.contentType)
+        } else if (attachmentInfo.attachmentLocation) {
+            // not a screen, get straight data with type depending on extension
+            DataSource dataSource = ec.resource.getLocationDataSource((String) attachmentInfo.attachmentLocation)
+            email.attach(dataSource, (String) attachmentInfo.fileName, "")
+        } else {
+            logger.error("Attachment info invalid for email template ${emailTemplateId} to ${toList} subject '${subject}': ${attachmentInfo}")
+        }
+    }
+
+    // DB configured attachments
     for (EntityValue emailTemplateAttachment in emailTemplateAttachmentList) {
         // check attachmentCondition if there is one
         String attachmentCondition = (String) emailTemplateAttachment.attachmentCondition
@@ -213,25 +265,74 @@ try {
 }
 
 static void renderScreenAttachment(EntityValue emailTemplate, EntityValue emailTemplateAttachment, HtmlEmail email, ExecutionContextImpl ec, Logger logger) {
-    def attachmentRender = ec.screen.makeRender().rootScreen(ec.resource.expand((String) emailTemplateAttachment.attachmentLocation, null))
-            .webappName((String) emailTemplate.webappName).renderMode((String) emailTemplateAttachment.screenRenderMode)
-    String attachmentText = attachmentRender.render()
-    if (attachmentText == null) return
-    if (attachmentText.trim().length() == 0) return
+    renderScreenAttachment(emailTemplate, email, ec, logger, (String) emailTemplateAttachment.fileName,
+            (String) emailTemplateAttachment.screenRenderMode, (String) emailTemplateAttachment.attachmentLocation,
+            (String) emailTemplateAttachment.screenPath, null)
+}
+static void renderScreenAttachment(EntityValue emailTemplate, HtmlEmail email, ExecutionContextImpl ec, Logger logger,
+        String filename, String renderMode, String attachmentLocation, String screenPath, String contentType) {
 
-    String fileName = ec.resource.expand((String) emailTemplateAttachment.fileName, null)
-    if (emailTemplateAttachment.screenRenderMode == "xsl-fo") {
-        // use ResourceFacade.xslFoTransform() to change to PDF, then attach that
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream()
-            ec.resource.xslFoTransform(new StreamSource(new StringReader(attachmentText)), null, baos, "application/pdf")
-            email.attach(new ByteArrayDataSource(baos.toByteArray(), "application/pdf"), fileName, "")
-        } catch (Exception e) {
-            logger.warn("Error generating PDF from XSL-FO: ${e.toString()}")
+    if (!filename) {
+        String extension = renderMode == "xsl-fo" ? "pdf" : renderMode
+        filename = attachmentLocation.substring(attachmentLocation.lastIndexOf("/")+1, attachmentLocation.length()-4) + "." + extension
+    }
+    String filenameExp = ec.resource.expand(filename, null)
+
+    String webappName = (String) emailTemplate.webappName ?: "webroot"
+    String webHostName = (String) emailTemplate.webHostName
+
+    def attachmentRender
+    if (screenPath == null || screenPath.isEmpty()) {
+        attachmentRender = ec.screen.makeRender().rootScreen(attachmentLocation).webappName(webappName).renderMode(renderMode)
+    } else {
+        attachmentRender = ec.screen.makeRender().webappName(webappName).rootScreenFromHost(webHostName ?: "localhost")
+                .screenPath(screenPath).renderMode(renderMode).lastStandalone("true")
+    }
+
+    if (ec.screenFacade.isRenderModeText(renderMode)) {
+        String attachmentText = attachmentRender.render()
+        if (attachmentText == null) return
+        if (attachmentText.trim().length() == 0) return
+
+        if (renderMode == "xsl-fo") {
+            // use ResourceFacade.xslFoTransform() to change to PDF, then attach that
+            try {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream()
+                ec.resource.xslFoTransform(new StreamSource(new StringReader(attachmentText)), null, baos, "application/pdf")
+                email.attach(new ByteArrayDataSource(baos.toByteArray(), "application/pdf"), filenameExp, "")
+            } catch (Exception e) {
+                logger.warn("Error generating PDF from XSL-FO: ${e.toString()}")
+            }
+        } else {
+            String mimeType = contentType ?: ec.screenFacade.getMimeTypeByMode(renderMode)
+            DataSource dataSource = new ByteArrayDataSource(attachmentText, mimeType)
+            email.attach(dataSource, filenameExp, "")
         }
     } else {
-        String mimeType = ec.screenFacade.getMimeTypeByMode((String) emailTemplateAttachment.screenRenderMode)
-        DataSource dataSource = new ByteArrayDataSource(attachmentText, mimeType)
-        email.attach(dataSource, fileName, "")
+        ByteArrayOutputStream baos = new ByteArrayOutputStream()
+        attachmentRender.render(baos)
+
+        String mimeType = contentType ?: ec.screenFacade.getMimeTypeByMode(renderMode)
+        DataSource dataSource = new ByteArrayDataSource(baos.toByteArray(), mimeType)
+        email.attach(dataSource, filenameExp, "")
     }
+}
+
+static boolean isDomainAllowed(String emailAddress, ArrayList<String> toDomainList) {
+    if (emailAddress == null || emailAddress.isEmpty()) return false
+    boolean domainAllowed = true
+    if (toDomainList != null && !toDomainList.isEmpty()) {
+        domainAllowed = false
+        int atIndex = emailAddress.indexOf("@")
+        if (atIndex == -1) return false
+        String emailDomain = emailAddress.substring(atIndex + 1, emailAddress.length())
+
+        for (toDomain in toDomainList) {
+            if (emailDomain.endsWith(toDomain)) {
+                domainAllowed = true
+                break
+            }
+        }
+    }
+    return domainAllowed
 }

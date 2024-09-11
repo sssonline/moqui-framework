@@ -17,6 +17,8 @@ import org.moqui.context.ArtifactExecutionInfo;
 import org.moqui.impl.entity.EntityValueBase;
 import org.moqui.util.CollectionUtilities;
 import org.moqui.util.StringUtilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -26,6 +28,7 @@ import java.math.RoundingMode;
 import java.util.*;
 
 public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
+    protected final static Logger logger = LoggerFactory.getLogger(ArtifactExecutionInfoImpl.class);
 
     // NOTE: these need to be in a Map instead of the DB because Enumeration records may not yet be loaded
     private final static Map<ArtifactType, String> artifactTypeDescriptionMap = new EnumMap<>(ArtifactType.class);
@@ -55,6 +58,7 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     public boolean trackArtifactHit = true;
     private boolean internalAuthzWasGranted = false;
     public ArtifactAuthzCheck internalAacv = null;
+    public Long moquiTxId = null;
 
     //protected Exception createdLocation = null
     private ArtifactExecutionInfoImpl parentAeii = (ArtifactExecutionInfoImpl) null;
@@ -124,6 +128,9 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     public boolean getAuthorizationWasGranted() { return internalAuthzWasGranted; }
     void setAuthorizationWasGranted(boolean value) { internalAuthzWasGranted = value ? Boolean.TRUE : Boolean.FALSE; }
 
+    public Long getMoquiTxId() { return moquiTxId; }
+    void setMoquiTxId(Long txId) { moquiTxId = txId; }
+
     ArtifactAuthzCheck getAacv() { return internalAacv; }
 
     public void copyAacvInfo(ArtifactAuthzCheck aacv, String userId, boolean wasGranted) {
@@ -149,6 +156,7 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     @Override
     public long getRunningTime() { return endTimeNanos != 0 ? endTimeNanos - startTimeNanos : 0; }
     public double getRunningTimeMillisDouble() { return (endTimeNanos != 0 ? endTimeNanos - startTimeNanos : 0) / 1000000.0; }
+    public long getRunningTimeMillisLong() { return Math.round((endTimeNanos != 0 ? endTimeNanos - startTimeNanos : 0) / 1000000.0); }
     private void calcChildTime(boolean recurse) {
         childrenRunningTime = 0;
         if (childList != null) for (ArtifactExecutionInfoImpl aeii: childList) {
@@ -173,7 +181,7 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     public ArtifactExecutionInfo getParent() { return parentAeii; }
     @Override
     public BigDecimal getPercentOfParentTime() { return parentAeii != null && endTimeNanos != 0 ?
-        new BigDecimal((getRunningTime() / parentAeii.getRunningTime()) * 100).setScale(2, BigDecimal.ROUND_HALF_UP) : BigDecimal.ZERO; }
+        new BigDecimal((getRunningTime() / parentAeii.getRunningTime()) * 100).setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO; }
 
 
     void addChild(ArtifactExecutionInfoImpl aeii) {
@@ -207,6 +215,128 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     }
 
     private String getKeyString() { return nameInternal + ":" + internalTypeEnum.name() + ":" + internalActionEnum.name() + ":" + actionDetail; }
+    private String getKeyStringNoName() { return internalTypeEnum.name() + ":" + internalActionEnum.name() + ":" + actionDetail; }
+
+    public static class ArtifactTypeStats {
+
+        public int screenCount = 0, screenTransCount = 0, screenContentCount = 0, restPathCount = 0,
+                serviceViewCount = 0, serviceOtherCount = 0,
+                entityFindOneCount = 0, entityFindListCount = 0, entityFindIteratorCount = 0, entityFindCountCount = 0,
+                entityCreateCount = 0, entityUpdateCount = 0, entityDeleteCount = 0;
+        public long screenTime = 0, screenTransTime = 0, screenContentTime = 0, restPathTime = 0,
+                serviceViewTime = 0, serviceOtherTime = 0,
+                entityFindOneTime = 0, entityFindListTime = 0, entityFindIteratorTime = 0, entityFindCountTime = 0,
+                entityCreateTime = 0, entityUpdateTime = 0, entityDeleteTime = 0;
+        public void add(ArtifactTypeStats that) {
+            if (that == null) return;
+
+            screenCount += that.screenCount; screenTransCount += that.screenTransCount;
+            screenContentCount += that.screenContentCount; restPathCount += that.restPathCount;
+            serviceViewCount += that.serviceViewCount; serviceOtherCount += that.serviceOtherCount;
+            entityFindOneCount += that.entityFindOneCount; entityFindListCount += that.entityFindListCount;
+            entityFindIteratorCount += that.entityFindIteratorCount; entityFindCountCount += that.entityFindCountCount;
+            entityCreateCount += that.entityCreateCount; entityUpdateCount += that.entityUpdateCount;
+            entityDeleteCount += that.entityDeleteCount;
+
+            screenTime += that.screenTime; screenTransTime += that.screenTransTime;
+            screenContentTime += that.screenContentTime; restPathTime += that.restPathTime;
+            serviceViewTime += that.serviceViewTime; serviceOtherTime += that.serviceOtherTime;
+            entityFindOneTime += that.entityFindOneTime; entityFindListTime += that.entityFindListTime;
+            entityFindIteratorTime += that.entityFindIteratorTime; entityFindCountTime += that.entityFindCountTime;
+            entityCreateTime += that.entityCreateTime; entityUpdateTime += that.entityUpdateTime;
+            entityDeleteTime += that.entityDeleteTime;
+        }
+        public ArtifactTypeStats cloneStats(ArtifactTypeStats that) {
+            ArtifactTypeStats newStats = new ArtifactTypeStats();
+            newStats.add(that);
+            return newStats;
+        }
+    }
+    static ArtifactTypeStats getArtifactTypeStats(ArrayList<ArtifactExecutionInfoImpl> aeiiList) {
+        ArtifactTypeStats stats = new ArtifactTypeStats();
+        addArtifactTypeStats(aeiiList, stats);
+        return stats;
+    }
+    static void addArtifactTypeStats(ArrayList<ArtifactExecutionInfoImpl> aeiiList, ArtifactTypeStats stats) {
+        if (aeiiList == null) return;
+        int aeiiListSize = aeiiList.size();
+        for (int i = 0; i < aeiiListSize; i++) {
+            ArtifactExecutionInfoImpl aeii = aeiiList.get(i);
+            // tight loop, use switch instead of if on these enums for much better performance; run fast for use in on the fly accumulators
+            switch (aeii.internalTypeEnum) {
+                case AT_ENTITY:
+                    switch (aeii.internalActionEnum) {
+                        case AUTHZA_VIEW:
+                            if (aeii.actionDetail != null && !aeii.actionDetail.isEmpty()) {
+                                char first = aeii.actionDetail.charAt(0);
+                                switch (first) {
+                                    case 'o': // one
+                                    case 'r': // refresh
+                                        stats.entityFindOneCount++;
+                                        stats.entityFindOneTime += aeii.getRunningTime();
+                                        break;
+                                    case 'l': // list
+                                        stats.entityFindListCount++;
+                                        stats.entityFindListTime += aeii.getRunningTime();
+                                        break;
+                                    case 'i': // iterator
+                                        stats.entityFindIteratorCount++;
+                                        stats.entityFindIteratorTime += aeii.getRunningTime();
+                                        break;
+                                    case 'c': // count
+                                        stats.entityFindCountCount++;
+                                        stats.entityFindCountTime += aeii.getRunningTime();
+                                        break;
+                                }
+                            } else {
+                                logger.warn("entity view with no detail " + aeii.toBasicString());
+                            }
+                            break;
+                        case AUTHZA_CREATE:
+                            stats.entityCreateCount++;
+                            stats.entityCreateTime += aeii.getRunningTime();
+                            break;
+                        case AUTHZA_UPDATE:
+                            stats.entityUpdateCount++;
+                            stats.entityUpdateTime += aeii.getRunningTime();
+                            break;
+                        case AUTHZA_DELETE:
+                            stats.entityDeleteCount++;
+                            stats.entityDeleteTime += aeii.getRunningTime();
+                            break;
+                    }
+                    break;
+                case AT_SERVICE:
+                    if (aeii.internalActionEnum == AUTHZA_VIEW) {
+                        stats.serviceViewCount++;
+                        stats.serviceViewTime += aeii.getRunningTime();
+                    } else {
+                        stats.serviceOtherCount++;
+                        stats.serviceOtherTime += aeii.getRunningTime();
+                    }
+                    break;
+                case AT_XML_SCREEN:
+                    stats.screenCount++;
+                    stats.screenTime += aeii.getRunningTime();
+                    break;
+                case AT_XML_SCREEN_TRANS:
+                    stats.screenTransCount++;
+                    stats.screenTransTime += aeii.getRunningTime();
+                    break;
+                case AT_XML_SCREEN_CONTENT:
+                    stats.screenContentCount++;
+                    stats.screenContentTime += aeii.getRunningTime();
+                    break;
+                case AT_REST_PATH:
+                    stats.restPathCount++;
+                    stats.restPathTime += aeii.getRunningTime();
+                    break;
+            }
+
+            // this aeii is done, how about children?
+            addArtifactTypeStats(aeii.childList, stats);
+        }
+    }
 
     @SuppressWarnings("unchecked")
     static List<Map<String, Object>> hotSpotByTime(List<ArtifactExecutionInfoImpl> aeiiList, boolean ownTime, String orderBy) {
@@ -233,8 +363,8 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
                 BigDecimal newTotal = BigDecimal.ZERO;
                 BigDecimal newMax = BigDecimal.ZERO;
                 for (BigDecimal time: newTimes) { newTotal = newTotal.add(time); if (time.compareTo(newMax) > 0) newMax = time; }
-                BigDecimal newAvg = newTotal.divide(new BigDecimal(newTimes.size()), 2, BigDecimal.ROUND_HALF_UP);
-                // long newTimeAvg = newAvg.setScale(0, BigDecimal.ROUND_HALF_UP)
+                BigDecimal newAvg = newTotal.divide(new BigDecimal(newTimes.size()), 2, RoundingMode.HALF_UP);
+                // long newTimeAvg = newAvg.setScale(0, RoundingMode.HALF_UP)
                 newTotal = newTotal.add(newAvg.multiply(new BigDecimal(knockOutCount)));
                 val.put("time", newTotal);
                 val.put("timeMax", newMax);
@@ -277,7 +407,7 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
                 val.put("time", ((BigDecimal) val.get("time")).add(curTime));
                 val.put("timeMin", ((BigDecimal) val.get("timeMin")).compareTo(curTime) > 0 ? curTime : (BigDecimal) val.get("timeMin"));
                 val.put("timeMax", ((BigDecimal) val.get("timeMax")).compareTo(curTime) > 0 ? (BigDecimal) val.get("timeMax") : curTime);
-                val.put("timeAvg", ((BigDecimal) val.get("time")).divide((BigDecimal) val.get("count"), 2, BigDecimal.ROUND_HALF_UP));
+                val.put("timeAvg", ((BigDecimal) val.get("time")).divide((BigDecimal) val.get("count"), 2, RoundingMode.HALF_UP));
             }
         }
         if (childList != null) for (ArtifactExecutionInfoImpl aeii: childList) aeii.addToMapByTime(timeByArtifact, ownTime);
@@ -365,12 +495,19 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
     }
 
     @Override public String toString() {
-        return "[name:'" + nameInternal + "', type:'" + internalTypeEnum + "', action:'" + internalActionEnum + "', required: " + internalAuthzWasRequired + ", granted:" + internalAuthzWasGranted + ", user:'" + internalAuthorizedUserId + "', authz:'" + internalAuthorizedAuthzType + "', authAction:'" + internalAuthorizedActionEnum + "', inheritable:" + internalAuthorizationInheritable + ", runningTime:" + getRunningTime() + "]";
+        return "[name:'" + nameInternal + "', type:'" + internalTypeEnum + "', action:'" + internalActionEnum +
+                "', required: " + internalAuthzWasRequired + ", granted:" + internalAuthzWasGranted +
+                ", user:'" + internalAuthorizedUserId + "', authz:'" + internalAuthorizedAuthzType +
+                "', authAction:'" + internalAuthorizedActionEnum + "', inheritable:" + internalAuthorizationInheritable +
+                ", runningTime:" + getRunningTime() + "', txId:" + moquiTxId + "]";
     }
     @Override public String toBasicString() {
-        String actionStr = internalActionEnum.toString();
-        if (actionDetail != null && !actionDetail.isEmpty()) actionStr = actionStr + ':' + actionDetail;
-        return internalTypeEnum.toString() + ':' + nameInternal + '(' + actionStr + ')';
+        StringBuilder builder = new StringBuilder().append(internalTypeEnum.toString()).append(':').append(nameInternal)
+                .append(" (").append(internalActionEnum.toString());
+        if (actionDetail != null && !actionDetail.isEmpty()) builder.append(':').append(actionDetail);
+        builder.append(") ").append(System.currentTimeMillis() - startTimeMillis).append("ms");
+        if (moquiTxId != null) builder.append(" TX ").append(moquiTxId);
+        return builder.toString();
     }
 
 
@@ -400,6 +537,9 @@ public class ArtifactExecutionInfoImpl implements ArtifactExecutionInfo {
 
             nameIsPattern = "Y".equals(aacvMap.get("nameIsPattern"));
             inheritAuthz = "Y".equals(aacvMap.get("inheritAuthz"));
+        }
+        @Override public String toString() {
+            return "[userGroupId:" + userGroupId + ", artifactAuthzId:" + artifactAuthzId + ", artifactGroupId:" + artifactGroupId + ", artifactName:" + artifactName + ", artifactType:" + artifactType + ", authzAction:" + authzAction + ", authzType:" + authzType + ", nameIsPattern:" + nameIsPattern + ", inheritAuthz:" + inheritAuthz + "]";
         }
     }
 }

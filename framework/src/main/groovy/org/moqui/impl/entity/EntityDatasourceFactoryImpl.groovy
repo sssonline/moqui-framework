@@ -124,6 +124,10 @@ class EntityDatasourceFactoryImpl implements EntityDatasourceFactory {
         if (ed == null) return false
         return efi.getEntityDbMeta().checkTableStartup(ed)
     }
+    @Override
+    int checkAndAddAllTables() {
+        return efi.getEntityDbMeta().checkAndAddAllTables(datasourceNode.attribute("group-name"))
+    }
 
     @Override
     EntityValue makeEntityValue(String entityName) {
@@ -134,6 +138,16 @@ class EntityDatasourceFactoryImpl implements EntityDatasourceFactory {
 
     @Override
     EntityFind makeEntityFind(String entityName) { return new EntityFindImpl(efi, entityName) }
+
+    @Override
+    void createBulk(List<EntityValue> valueList) {
+        // basic approach, can probably do better with some JDBC tricks
+        Iterator<EntityValue> valueIterator = valueList.iterator()
+        while (valueIterator.hasNext()) {
+            EntityValue ev = (EntityValue) valueIterator.next()
+            ev.create()
+        }
+    }
 
     @Override
     DataSource getDataSource() { return dataSource }

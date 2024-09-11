@@ -18,6 +18,8 @@ import org.moqui.BaseArtifactException
 import org.moqui.entity.EntityFind
 import org.moqui.impl.context.ExecutionContextImpl
 import org.moqui.impl.entity.condition.ConditionAlias
+import org.moqui.impl.entity.condition.DateCondition
+import org.moqui.util.LiteStringMap
 import org.moqui.util.ObjectUtilities
 import org.moqui.util.StringUtilities
 
@@ -45,8 +47,10 @@ class EntityDefinition {
     protected final EntityFacadeImpl efi
     public final MNode internalEntityNode
     public final String fullEntityName
-    public final boolean isViewEntity
-    public final boolean isDynamicView
+    // NOTE: these fields were primitive type boolean, changed to object type Boolean because of issue introduced in
+    //    Groovy 3.0.10; with boolean it worked fine in 3.0.9, after that once the constructor completes true values in
+    //    these two fields get flipped to false; see commented logs at EntityDefinition.groovy:94-95, EntityFindBuild.java:112-114
+    public final Boolean isViewEntity, isDynamicView
     public final String groupName
     public final EntityJavaUtil.EntityInfo entityInfo
 
@@ -87,34 +91,13 @@ class EntityDefinition {
         fullEntityName = packageName + "." + internalEntityNode.attribute("entity-name")
 
         isViewEntity = "view-entity".equals(internalEntityNode.getName())
+        // if (fullEntityName.contains("ArtifactTarpitCheckView") || fullEntityName.contains("DataFeedDocumentDetail"))
+        //     logger.warn("===== TOREMOVE ===== entity ${fullEntityName} node ${internalEntityNode.getName()} isViewEntity ${isViewEntity} ${this}")
         isDynamicView = "true".equals(internalEntityNode.attribute("is-dynamic-view"))
 
-        if (isDynamicView) {
-            // use the group of the primary member-entity
-            String memberEntityName = null
-            ArrayList<MNode> meList = internalEntityNode.children("member-entity")
-            for (MNode meNode : meList) {
-                String jfaAttr = meNode.attribute("join-from-alias")
-                if (jfaAttr == null || jfaAttr.isEmpty()) {
-                    memberEntityName = meNode.attribute("entity-name")
-                    break
-                }
-            }
-            if (memberEntityName != null) {
-                groupName = efi.getEntityGroupName(memberEntityName)
-            } else {
-                throw new EntityException("Could not find group for dynamic view entity")
-            }
-        } else {
-            String groupAttr = internalEntityNode.attribute("group")
-            if (groupAttr == null || groupAttr.isEmpty()) groupAttr = internalEntityNode.attribute("group-name")
-            if (groupAttr == null || groupAttr.isEmpty()) groupAttr = efi.getDefaultGroupName()
-            groupName = groupAttr
-        }
-
-        // now initFields() and create EntityInfo
-        boolean neverCache = false
+        boolean memberNeverCache = false
         if (isViewEntity) {
+            // init some view-entity only fields
             memberEntityFieldAliases = [:]
             memberEntityAliasMap = [:]
 
@@ -155,26 +138,40 @@ class EntityDefinition {
             for (MNode memberEntity in internalEntityNode.children("member-entity")) {
                 String memberEntityName = memberEntity.attribute("entity-name")
                 memberEntityAliasMap.put(memberEntity.attribute("entity-alias"), memberEntity)
-                if ("true".equals(memberEntity.attribute("sub-select"))) hasSubSelectMembers = true
+                String subSelectAttr = memberEntity.attribute("sub-select")
+                if ("true".equals(subSelectAttr) || "non-lateral".equals(subSelectAttr)) hasSubSelectMembers = true
+
                 EntityDefinition memberEd = efi.getEntityDefinition(memberEntityName)
                 if (memberEd == null) throw new EntityException("No definition found for member-entity ${memberEntity.attribute("entity-alias")} name ${memberEntityName} in view-entity ${fullEntityName}")
+
                 MNode memberEntityNode = memberEd.getEntityNode()
-                String groupNameAttr = memberEntityNode.attribute("group") ?: memberEntityNode.attribute("group-name")
-                if (groupNameAttr == null || groupNameAttr.length() == 0) {
+                String memberGroupAttr = memberEntityNode.attribute("group") ?: memberEntityNode.attribute("group-name")
+                if (memberGroupAttr == null || memberGroupAttr.length() == 0) {
                     // use the default group
-                    groupNameAttr = efi.getDefaultGroupName()
+                    memberGroupAttr = efi.getDefaultGroupName()
                 }
-                // only set on view-entity for the first one
-                if (allGroupNames.size() == 0) internalEntityNode.attributes.put("group", groupNameAttr)
+                // only set on view-entity for the first/primary member-entity
+                String veGroupAttr = internalEntityNode.attribute("group")
+                if (allGroupNames.size() == 0 && (veGroupAttr == null || veGroupAttr.isEmpty()))
+                    internalEntityNode.attributes.put("group", memberGroupAttr)
                 // remember all group names applicable to the view entity
-                allGroupNames.add(groupNameAttr)
+                allGroupNames.add(memberGroupAttr)
 
                 // if is view entity and any member entities set to never cache set this to never cache
-                if ("never".equals(memberEntityNode.attribute("cache"))) neverCache = true
+                if ("never".equals(memberEntityNode.attribute("cache"))) memberNeverCache = true
             }
             // warn if view-entity has members in more than one group (join will fail if deployed in different DBs)
-            // TODO enable this again to check view-entities for groups: if (allGroupNames.size() > 1) logger.warn("view-entity ${getFullEntityName()} has members in more than one group: ${allGroupNames}")
+            if (allGroupNames.size() > 1) logger.warn("view-entity ${getFullEntityName()} has members in more than one group: ${allGroupNames}")
+        }
 
+        // get group from entity node now that view-entity group handled
+        String groupAttr = internalEntityNode.attribute("group")
+        if (groupAttr == null || groupAttr.isEmpty()) groupAttr = internalEntityNode.attribute("group-name")
+        if (groupAttr == null || groupAttr.isEmpty()) groupAttr = efi.getDefaultGroupName()
+        groupName = groupAttr
+
+        // now initFields() and create EntityInfo
+        if (isViewEntity) {
             // if this is a view-entity, expand the alias-all elements into alias elements here
             this.expandAliasAlls()
             // set @type, set is-pk on all alias Nodes if the related field is-pk
@@ -202,6 +199,8 @@ class EntityDefinition {
                 ArrayList<MNode> aliasByField = fieldInfoByEntity.get(fieldName)
                 aliasByField.add(aliasNode)
             }
+
+            int curIndex = 0
             for (MNode aliasNode in internalEntityNode.children("alias")) {
                 if (aliasNode.attribute("pq-expression")) {
                     if (pqExpressionNodeMap == null) pqExpressionNodeMap = new HashMap<>()
@@ -210,8 +209,9 @@ class EntityDefinition {
                     continue
                 }
 
-                FieldInfo fi = new FieldInfo(this, aliasNode)
+                FieldInfo fi = new FieldInfo(this, aliasNode, curIndex)
                 addFieldInfo(fi)
+                curIndex++
             }
 
             entityConditionNode = internalEntityNode.first("entity-condition")
@@ -223,8 +223,10 @@ class EntityDefinition {
                 internalEntityNode.append("field", [name:"lastUpdatedStamp", type:"date-time"])
             }
 
-            for (MNode fieldNode in internalEntityNode.children("field")) {
-                FieldInfo fi = new FieldInfo(this, fieldNode)
+            ArrayList<MNode> fieldNodeList = internalEntityNode.children("field")
+            for (int i = 0; i < fieldNodeList.size(); i++) {
+                MNode fieldNode = (MNode) fieldNodeList.get(i)
+                FieldInfo fi = new FieldInfo(this, fieldNode, i)
                 addFieldInfo(fi)
             }
 
@@ -233,7 +235,7 @@ class EntityDefinition {
         }
 
         // finally create the EntityInfo object
-        entityInfo = new EntityJavaUtil.EntityInfo(this, neverCache)
+        entityInfo = new EntityJavaUtil.EntityInfo(this, memberNeverCache)
     }
 
     private void addFieldInfo(FieldInfo fi) {
@@ -253,7 +255,8 @@ class EntityDefinition {
         EntityDefinition memberEd = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
         FieldInfo fieldInfo = memberEd.getFieldInfo(fieldName)
         if (fieldInfo == null) throw new EntityException("Invalid field name ${fieldName} for entity ${memberEd.getFullEntityName()}")
-        if ("true".equals(memberEntity.attribute("sub-select"))) {
+        String subSelectAttr = memberEntity.attribute("sub-select")
+        if ("true".equals(subSelectAttr) || "non-lateral".equals(subSelectAttr)) {
             // sub-select uses alias field name changed to underscored
             return EntityJavaUtil.camelCaseToUnderscored(fieldInfo.name)
         } else {
@@ -285,7 +288,8 @@ class EntityDefinition {
                 // special case for member-entity with sub-select=true, use alias underscored
                 MNode memberEntity = (MNode) memberEntityAliasMap.get(entityAlias)
                 EntityDefinition memberEd = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
-                if (!memberEd.isViewEntity && "true".equals(memberEntity.attribute("sub-select"))) {
+                String subSelectAttr = memberEntity.attribute("sub-select")
+                if (!memberEd.isViewEntity && ("true".equals(subSelectAttr) || "non-lateral".equals(subSelectAttr))) {
                     return entityAlias + '.' + EntityJavaUtil.camelCaseToUnderscored(memberAliasName)
                 }
             }
@@ -508,6 +512,7 @@ class EntityDefinition {
 
     /** Returns the table name, ie table-name or converted entity-name */
     String getTableName() { return entityInfo.tableName }
+    String getTableNameLowerCase() { return entityInfo.tableNameLowerCase }
     String getFullTableName() { return entityInfo.fullTableName }
     String getSchemaName() { return entityInfo.schemaName }
 
@@ -538,15 +543,45 @@ class EntityDefinition {
         }
         return true
     }
-    Map<String, Object> getPrimaryKeys(Map<String, Object> fields) {
-        Map<String, Object> pks = new HashMap()
-        ArrayList<String> fieldNameList = this.getPkFieldNames()
-        int size = fieldNameList.size()
-        for (int i = 0; i < size; i++) {
-            String fieldName = (String) fieldNameList.get(i)
-            pks.put(fieldName, fields.get(fieldName))
+    LiteStringMap<Object> getPrimaryKeys(Map<String, Object> fields) {
+        // NOTE: for pks Map don't use manual indexes, want compact with no extra entries and causes issues
+        FieldInfo[] pkFieldInfos = this.entityInfo.pkFieldInfoArray
+        LiteStringMap<Object> pks = new LiteStringMap<>(pkFieldInfos.length)
+
+        if (fields instanceof LiteStringMap) {
+            LiteStringMap<Object> fieldsLsm = (LiteStringMap<Object>) fields
+            for (int i = 0; i < pkFieldInfos.length; i++) {
+                FieldInfo fi = pkFieldInfos[i]
+                pks.putByIString(fi.name, fieldsLsm.getByIString(fi.name))
+            }
+        } else {
+            for (int i = 0; i < pkFieldInfos.length; i++) {
+                FieldInfo fi = pkFieldInfos[i]
+                pks.putByIString(fi.name, fields.get(fi.name))
+            }
         }
+
         return pks
+    }
+    String getPrimaryKeysString(Map<String, Object> fieldValues) {
+        if (fieldValues == null) {
+            logger.warn("EntityDefinition.getPrimaryKeysString() fieldValues is null", new Exception("location"))
+            return null
+        }
+        FieldInfo[] pkFieldInfoArray = entityInfo.pkFieldInfoArray
+        if (pkFieldInfoArray.length == 1) {
+            FieldInfo fi = pkFieldInfoArray[0]
+            return ObjectUtilities.toPlainString(fieldValues.get(fi.name))
+        } else {
+            StringBuilder pkCombinedSb = new StringBuilder();
+            for (int pki = 0; pki < pkFieldInfoArray.length; pki++) {
+                FieldInfo fi = pkFieldInfoArray[pki]
+                // NOTE: separator of '::' matches separator used for combined PK String in EntityValueBase.getPrimaryKeysString() and EntityDataDocument.makeDocId()
+                if (pkCombinedSb.length() > 0) pkCombinedSb.append("::")
+                pkCombinedSb.append(ObjectUtilities.toPlainString(fieldValues.get(fi.name)))
+            }
+            return pkCombinedSb.toString()
+        }
     }
 
     ArrayList<String> getFieldNames(boolean includePk, boolean includeNonPk) {
@@ -736,7 +771,7 @@ class EntityDefinition {
         EntityDefinition parentEd
         RelationshipInfo relInfo
         String relatedMasterName
-        ArrayList<MasterDetail> internalDetailList = []
+        ArrayList<MasterDetail> internalDetailList = new ArrayList<>()
         MasterDetail(EntityDefinition parentEd, MNode detailNode) {
             this.parentEd = parentEd
             relationshipName = detailNode.attribute("relationship")
@@ -775,9 +810,9 @@ class EntityDefinition {
     static class EntityDependents {
         String entityName
         EntityDefinition ed
-        Map<String, EntityDependents> dependentEntities = new TreeMap()
+        Map<String, EntityDependents> dependentEntities = new TreeMap<String, EntityDependents>()
         Set<String> descendants = new TreeSet()
-        Map<String, RelationshipInfo> relationshipInfos = new HashMap()
+        Map<String, RelationshipInfo> relationshipInfos = new HashMap<String, RelationshipInfo>()
 
         EntityDependents(EntityDefinition ed, Deque<String> ancestorEntities, Map<String, EntityDependents> allDependents) {
             this.ed = ed
@@ -832,12 +867,12 @@ class EntityDefinition {
             for (Map.Entry<String, EntityDependents> entry in dependentEntities) {
                 RelationshipInfo relInfo = relationshipInfos.get(entry.getKey())
                 builder.append(indent).append(relInfo.relationshipName).append(" ").append(relInfo.keyMap).append("\n")
-                if (level < 8 && !entitiesVisited.contains(entry.getValue().entityName)) {
+                if (level < 4 && !entitiesVisited.contains(entry.getValue().entityName)) {
                     entry.getValue().buildString(builder, level + 1I, entitiesVisited)
                     entitiesVisited.add(entry.getValue().entityName)
                 } else if (entitiesVisited.contains(entry.getValue().entityName)) {
                     builder.append(indent).append(indentBase).append("Dependants already displayed\n")
-                } else if (level == 8) {
+                } else if (level == 4) {
                     builder.append(indent).append(indentBase).append("Reached level limit\n")
                 }
             }
@@ -978,49 +1013,96 @@ class EntityDefinition {
     EntityConditionImplBase makeViewWhereCondition() {
         if (!isViewEntity || entityConditionNode == null) return (EntityConditionImplBase) null
         // add the view-entity.entity-condition.econdition(s)
-        return makeViewListCondition(entityConditionNode)
+        return makeViewListCondition(entityConditionNode, null)
     }
     EntityConditionImplBase makeViewHavingCondition() {
         if (!isViewEntity || entityHavingEconditions == null) return (EntityConditionImplBase) null
         // add the view-entity.entity-condition.having-econditions
-        return makeViewListCondition(entityHavingEconditions)
+        return makeViewListCondition(entityHavingEconditions, null)
     }
 
-    protected EntityConditionImplBase makeViewListCondition(MNode conditionsParent) {
+    protected EntityConditionImplBase makeViewListCondition(MNode conditionsParent, MNode joinMemberEntityNode) {
         if (conditionsParent == null) return null
         ExecutionContextImpl eci = efi.ecfi.getEci()
+        EntityDefinition joinEntityDef = joinMemberEntityNode != null ? this.efi.getEntityDefinition(joinMemberEntityNode.attribute("entity-name")) : null
+
         List<EntityCondition> condList = new ArrayList()
         for (MNode dateFilter in conditionsParent.children("date-filter")) {
-            // NOTE: this doesn't do context expansion of the valid-date as it doesn't make sense for an entity def to depend on something being in the context
-            condList.add((EntityConditionImplBase) this.efi.conditionFactory.makeConditionDate(
-                    dateFilter.attribute("from-field-name"), dateFilter.attribute("thru-field-name"),
-                    dateFilter.attribute("valid-date") ? efi.ecfi.resourceFacade.expand(dateFilter.attribute("valid-date"), "") as Timestamp : null))
+            ConditionField fromField, thruField
+            String fromFieldName = dateFilter.attribute("from-field-name") ?: "fromDate"
+            String thruFieldName = dateFilter.attribute("thru-field-name") ?: "thruDate"
+
+            Timestamp validDate = dateFilter.attribute("valid-date") ? efi.ecfi.resourceFacade.expand(dateFilter.attribute("valid-date"), "") as Timestamp : null
+            if (validDate == (Timestamp) null) validDate = efi.ecfi.getEci().userFacade.getNowTimestamp()
+
+            String entityAliasAttr = dateFilter.attribute("entity-alias")
+            // if no entity-alias specified, use entity-alias from join member-entity node (if field exists on join entity)
+            if (joinEntityDef != null && (entityAliasAttr == null || entityAliasAttr.isEmpty()) && joinEntityDef.isField(fromFieldName))
+                entityAliasAttr = joinMemberEntityNode.attribute("entity-alias")
+
+            if (entityAliasAttr != null && !entityAliasAttr.isEmpty()) {
+                MNode memberEntity = (MNode) memberEntityAliasMap.get(entityAliasAttr)
+                if (memberEntity == null) throw new EntityException("The entity-alias [${entityAliasAttr}] was not found in view-entity [${entityInfo.internalEntityName}]")
+                EntityDefinition aliasEntityDef = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
+                fromField = new ConditionAlias(entityAliasAttr, fromFieldName, aliasEntityDef)
+                thruField = new ConditionAlias(entityAliasAttr, thruFieldName, aliasEntityDef)
+            } else {
+                FieldInfo fromFi = getFieldInfo(fromFieldName)
+                FieldInfo thruFi = getFieldInfo(thruFieldName)
+                if (fromFi == null) throw new EntityException("Field ${fromFieldName} not found in entity ${fullEntityName}")
+                if (thruFi == null) throw new EntityException("Field ${thruFieldName} not found in entity ${fullEntityName}")
+                fromField = fromFi.conditionField
+                thruField = thruFi.conditionField
+            }
+
+            condList.add(new DateCondition(fromField, thruField, validDate))
         }
         for (MNode econdition in conditionsParent.children("econdition")) {
-            EntityConditionImplBase cond;
+            String fieldNameAttr = econdition.attribute("field-name")
             ConditionField field
-            EntityDefinition condEd;
+            EntityConditionImplBase cond
+            EntityDefinition condEd
+
             String entityAliasAttr = econdition.attribute("entity-alias")
-            if (entityAliasAttr) {
-                MNode memberEntity = memberEntityAliasMap.get(entityAliasAttr)
-                if (!memberEntity) throw new EntityException("The entity-alias [${entityAliasAttr}] was not found in view-entity [${entityInfo.internalEntityName}]")
-                EntityDefinition aliasEntityDef = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
-                field = new ConditionAlias(entityAliasAttr, econdition.attribute("field-name"), aliasEntityDef)
-                condEd = aliasEntityDef;
-            } else {
-                FieldInfo fi = getFieldInfo(econdition.attribute("field-name"))
-                if (fi == null) throw new EntityException("Field ${econdition.attribute("field-name")} not found in entity ${fullEntityName}")
-                field = fi.conditionField
-                condEd = this;
+            // if no entity-alias specified, use entity-alias from join member-entity node (if field exists on join entity)
+            if (joinEntityDef != null && (entityAliasAttr == null || entityAliasAttr.isEmpty()) && joinEntityDef.isField(fieldNameAttr)) {
+                String joinMemberAlias = joinMemberEntityNode.attribute("entity-alias")
+                if (memberEntityAliasMap.containsKey(joinMemberAlias)) {
+                    entityAliasAttr = joinMemberAlias
+                } else {
+                    // special case for entity-condition.econdition under view-entity.member-entity with sub-select=true
+                    //     and when doing lateral joins, because WHERE clause is inside sub-select so should default to member-entity's internal alias
+                    // is the field an alias on this entity? use that entity-alias
+                    MNode aliasNode = this.getFieldNode(fieldNameAttr)
+                    if (aliasNode != null) entityAliasAttr = aliasNode.attribute("entity-alias")
+                }
             }
+
+            if (entityAliasAttr != null && !entityAliasAttr.isEmpty()) {
+                MNode memberEntity = (MNode) memberEntityAliasMap.get(entityAliasAttr)
+                if (memberEntity == null) throw new EntityException("The entity-alias [${entityAliasAttr}] was not found in view-entity [${entityInfo.internalEntityName}]")
+                EntityDefinition aliasEntityDef = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
+                field = new ConditionAlias(entityAliasAttr, fieldNameAttr, aliasEntityDef)
+                condEd = aliasEntityDef
+            } else {
+                FieldInfo fi = getFieldInfo(fieldNameAttr)
+                if (fi == null) throw new EntityException("Field ${fieldNameAttr} not found in entity ${fullEntityName}")
+                field = fi.conditionField
+                condEd = this
+            }
+
             String toFieldNameAttr = econdition.attribute("to-field-name")
             if (toFieldNameAttr != null) {
+                String toEntityAliasAttr = econdition.attribute("to-entity-alias")
+                if (joinEntityDef != null && (toEntityAliasAttr == null || toEntityAliasAttr.isEmpty()) && joinEntityDef.isField(toFieldNameAttr))
+                    toEntityAliasAttr = joinMemberEntityNode.attribute("entity-alias")
+
                 ConditionField toField
-                if (econdition.attribute("to-entity-alias")) {
-                    MNode memberEntity = memberEntityAliasMap.get(econdition.attribute("to-entity-alias"))
-                    if (!memberEntity) throw new EntityException("The entity-alias [${econdition.attribute("to-entity-alias")}] was not found in view-entity [${entityInfo.internalEntityName}]")
+                if (toEntityAliasAttr != null && !toEntityAliasAttr.isEmpty()) {
+                    MNode memberEntity = (MNode) memberEntityAliasMap.get(toEntityAliasAttr)
+                    if (memberEntity == null) throw new EntityException("The entity-alias [${toEntityAliasAttr}] was not found in view-entity [${entityInfo.internalEntityName}]")
                     EntityDefinition aliasEntityDef = this.efi.getEntityDefinition(memberEntity.attribute("entity-name"))
-                    toField = new ConditionAlias(econdition.attribute("to-entity-alias"), toFieldNameAttr, aliasEntityDef)
+                    toField = new ConditionAlias(toEntityAliasAttr, toFieldNameAttr, aliasEntityDef)
                 } else {
                     FieldInfo fi = getFieldInfo(toFieldNameAttr)
                     if (fi == null) throw new EntityException("Field ${toFieldNameAttr} not found in entity ${fullEntityName}")
@@ -1047,7 +1129,7 @@ class EntityDefinition {
             }
         }
         for (MNode econditions in conditionsParent.children("econditions")) {
-            EntityConditionImplBase cond = this.makeViewListCondition(econditions)
+            EntityConditionImplBase cond = this.makeViewListCondition(econditions, joinMemberEntityNode)
             if (cond) condList.add(cond)
         }
         if (condList == null || condList.size() == 0) return null

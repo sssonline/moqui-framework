@@ -14,6 +14,7 @@
 package org.moqui.impl.screen
 
 import groovy.transform.CompileStatic
+import org.moqui.impl.context.ContextJavaUtil
 import org.moqui.util.ContextStack
 import org.moqui.context.ValidationError
 import org.moqui.context.WebFacade
@@ -87,6 +88,7 @@ class WebFacadeStub implements WebFacade {
     String getResponseText() { responseWriter.flush(); return responseWriter.toString() }
     Object getResponseJsonObj() { return responseJsonObj }
     HttpServletResponseStub getHttpServletResponseStub() { return httpServletResponse }
+    String getRequestDetails() { return "Stub" }
 
     @Override String getRequestUrl() { return "TestRequestUrl" }
 
@@ -111,6 +113,7 @@ class WebFacadeStub implements WebFacade {
     @Override String getPathInfo() { return httpServletRequest.getPathInfo() }
     @Override ArrayList<String> getPathInfoList() { return WebFacadeImpl.getPathInfoList(request) }
     @Override String getRequestBodyText() { return null }
+    @Override String getResourceDistinctValue() { return ecfi.initStartHex }
 
     @Override HttpServletResponse getResponse() { return httpServletResponse }
     @Override HttpSession getSession() { return httpSession }
@@ -128,6 +131,7 @@ class WebFacadeStub implements WebFacade {
     @Override List<MessageInfo> getSavedPublicMessages() { return null }
     @Override List<String> getSavedErrors() { return null }
     @Override List<ValidationError> getSavedValidationErrors() { return null }
+    @Override List<ValidationError> getFieldValidationErrors(String fieldName) { return null }
 
     @Override List<Map> getScreenHistory() { return (List<Map>) sessionAttributes.get("moqui.screen.history") ?: new ArrayList<Map>() }
 
@@ -135,7 +139,7 @@ class WebFacadeStub implements WebFacade {
         if (skipJsonSerialize) {
             responseJsonObj = responseObj
         } else {
-            WebFacadeImpl.sendJsonResponseInternal(responseObj, ecfi.eci, httpServletRequest, httpServletResponse, requestAttributes)
+            WebFacadeImpl.sendJsonResponseInternal(responseObj, ecfi.getEci(), httpServletRequest, httpServletResponse, requestAttributes)
         }
         /*
         String jsonStr
@@ -158,16 +162,21 @@ class WebFacadeStub implements WebFacade {
         logger.info("WebFacadeStub sendJsonResponse ${jsonStr.length()} chars")
         */
     }
+    @Override
+    void sendJsonError(int statusCode, String message, Throwable origThrowable) {
+        WebFacadeImpl.sendJsonErrorInternal(statusCode, message, origThrowable, response)
+    }
 
     @Override void sendTextResponse(String text) { sendTextResponse(text, "text/plain", null) }
     @Override void sendTextResponse(String text, String contentType, String filename) {
-        WebFacadeImpl.sendTextResponseInternal(text, contentType, filename, ecfi.eci, httpServletRequest, httpServletResponse, requestAttributes)
+        WebFacadeImpl.sendTextResponseInternal(text, contentType, filename, ecfi.getEci(), httpServletRequest, httpServletResponse, requestAttributes)
         // responseWriter.append(text)
         // logger.info("WebFacadeStub sendTextResponse (${text.length()} chars, content type ${contentType}, filename: ${filename})")
     }
 
-    @Override void sendResourceResponse(String location) {
-        WebFacadeImpl.sendResourceResponseInternal(location, false, ecfi.eci, httpServletResponse)
+    @Override void sendResourceResponse(String location) { sendResourceResponse(location, false) }
+    @Override void sendResourceResponse(String location, boolean inline) {
+        WebFacadeImpl.sendResourceResponseInternal(location, inline, ecfi.getEci(), httpServletResponse)
         /*
         ResourceReference rr = ecfi.getResource().getLocationReference(location)
         if (rr == null) throw new IllegalArgumentException("Resource not found at: ${location}")
@@ -178,7 +187,6 @@ class WebFacadeStub implements WebFacade {
     }
     @Override void sendError(int errorCode, String message, Throwable origThrowable) { response.sendError(errorCode, message) }
 
-    @Override void handleXmlRpcServiceCall() { throw new IllegalArgumentException("WebFacadeStub handleXmlRpcServiceCall not supported") }
     @Override void handleJsonRpcServiceCall() { throw new IllegalArgumentException("WebFacadeStub handleJsonRpcServiceCall not supported") }
     @Override void handleEntityRestCall(List<String> extraPathNameList, boolean masterNameInPath) {
         throw new IllegalArgumentException("WebFacadeStub handleEntityRestCall not supported") }
@@ -410,13 +418,14 @@ class WebFacadeStub implements WebFacade {
         @Override void removeAttribute(String s) { wfs.sessionAttributes.remove(s) }
         @Override String getServletContextName() { return "Moqui Root Webapp" }
 
-        // ========== New methods for Servlet 3.1 ==========
-        @Override int getEffectiveMajorVersion() { return 3 }
-        @Override int getEffectiveMinorVersion() { return 1 }
+        // ========== New methods for Servlet 3.1 and 4.0 ==========
+        @Override int getEffectiveMajorVersion() { return 4 }
+        @Override int getEffectiveMinorVersion() { return 0 }
         @Override boolean setInitParameter(String name, String value) { return false }
         @Override ServletRegistration.Dynamic addServlet(String servletName, String className) { throw new UnsupportedOperationException() }
         @Override ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) { throw new UnsupportedOperationException() }
         @Override ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> servletClass) { throw new UnsupportedOperationException() }
+        @Override ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) { throw new UnsupportedOperationException() }
         @Override def <T extends Servlet> T createServlet(Class<T> clazz) throws ServletException { throw new UnsupportedOperationException() }
         @Override ServletRegistration getServletRegistration(String servletName) { throw new UnsupportedOperationException() }
         @Override Map<String, ? extends ServletRegistration> getServletRegistrations() { throw new UnsupportedOperationException() }
@@ -438,6 +447,12 @@ class WebFacadeStub implements WebFacade {
         @Override ClassLoader getClassLoader() { throw new UnsupportedOperationException() }
         @Override void declareRoles(String... roleNames) { throw new UnsupportedOperationException() }
         @Override String getVirtualServerName() { throw new UnsupportedOperationException() }
+        @Override int getSessionTimeout() { return 30 }
+        @Override void setSessionTimeout(int sessionTimeout) { }
+        @Override String getRequestCharacterEncoding() { return "UTF-8" }
+        @Override void setRequestCharacterEncoding(String encoding) { throw new UnsupportedOperationException() }
+        @Override String getResponseCharacterEncoding() { return "UTF-8" }
+        @Override void setResponseCharacterEncoding(String encoding) { throw new UnsupportedOperationException() }
     }
 
     static class HttpServletResponseStub implements HttpServletResponse {
