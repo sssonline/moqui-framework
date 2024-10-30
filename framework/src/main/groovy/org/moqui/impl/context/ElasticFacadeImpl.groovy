@@ -313,6 +313,8 @@ class ElasticFacadeImpl implements ElasticFacade {
 
         @Override
         void delete(String index, String _id) {
+            //TODO: what is this really for? by just returning due to breakage what do we lose if anything?
+            return;
             if (index == null || index.isEmpty()) throw new IllegalArgumentException("In delete document the index name may not be empty")
             if (_id == null || _id.isEmpty()) throw new IllegalArgumentException("In delete document the _id may not be empty")
             RestClient.RestResponse response = makeRestClient(Method.DELETE, index, "_doc/" + _id, null, SMALL_OP_REQUEST_TIMEOUT).call()

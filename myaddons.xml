@@ -1,0 +1,26 @@
+<addons default="aspen,ssscrm">
+    <runtime name="moqui-runtime" group="sssonline" version="" branch="master" repository="github-ssh"/>
+
+    <component name="mantle-udm" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="mantle-usl" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="mantle-edi" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="moqui-elasticsearch" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="moqui-fop" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="SimpleScreens" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="HiveMind" group="sssonline" version="" branch="master" repository="github-ssh"/>
+
+    <!-- Private Components -->
+    <component name="basalt" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="aspen" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="ssscommon" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="expense" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="ssscrm" group="sssonline" version="" branch="master" repository="github-ssh"/>
+
+    <!-- Customer Components -->
+    <component name="gebbers" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="gebbersb" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="gebbersw" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="gebberssal" group="sssonline" version="" branch="master" repository="github-ssh"/>
+    <component name="sunpac" group="sssonline" version="" branch="master" repository="github-ssh"/>
+
+</addons>

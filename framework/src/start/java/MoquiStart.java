@@ -142,7 +142,7 @@ public class MoquiStart {
             Thread.currentThread().setContextClassLoader(moquiStartLoader);
             // Runtime.getRuntime().addShutdownHook(new MoquiShutdown(null, null, moquiStartLoader));
             initSystemProperties(moquiStartLoader, false, argMap);
-            Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
+            //Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
 
             boolean successfullLoad = true;
             try {
@@ -155,7 +155,7 @@ public class MoquiStart {
                 System.out.println("Error loading or running Moqui.loadData with args [" + argMap + "]: " + e.toString());
                 e.printStackTrace();
             } finally {
-                checkStopElasticSearch(esProcess);
+                //checkStopElasticSearch(esProcess);
                 System.exit(successfullLoad ? 0 : 1);
             }
         }
@@ -176,12 +176,12 @@ public class MoquiStart {
         initSystemProperties(moquiStartLoader, false, argMap);
         String runtimePath = System.getProperty("moqui.runtime");
 
-        Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
-        if (esProcess != null) {
-            Thread shutdownHook = new ElasticShutdown(esProcess);
-            shutdownHook.setDaemon(true);
-            Runtime.getRuntime().addShutdownHook(shutdownHook);
-        }
+        //Process esProcess = argMap.containsKey("no-run-es") ? null : checkStartElasticSearch();
+//        if (esProcess != null) {
+//            Thread shutdownHook = new ElasticShutdown(esProcess);
+//            shutdownHook.setDaemon(true);
+//            Runtime.getRuntime().addShutdownHook(shutdownHook);
+//        }
 
         try {
             int port = 8080;

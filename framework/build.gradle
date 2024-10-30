@@ -84,10 +84,10 @@ dependencies {
     // Findbugs need only during compile (used by freemarker and various moqui classes)
     compileOnly 'com.google.code.findbugs:annotations:3.0.1'
 
-    compile 'org.apache.xmlbeans:xmlbeans:3.0.1'
-    compile 'org.apache.poi:poi:3.17'
-    compile 'org.apache.poi:poi-ooxml:3.17'
-    compile 'org.apache.poi:poi-ooxml-schemas:3.17'
+    implementation 'org.apache.xmlbeans:xmlbeans:3.0.1'
+    implementation 'org.apache.poi:poi:3.17'
+    implementation 'org.apache.poi:poi-ooxml:3.17'
+    implementation 'org.apache.poi:poi-ooxml-schemas:3.17'
 
     // ========== Local (flatDir) libraries in framework/lib ==========
 
@@ -218,7 +218,7 @@ dependencies {
     execWarRuntimeOnly ('org.eclipse.jetty.websocket:websocket-jetty-server:10.0.18') // Apache 2.0
     // only include this if using Endpoint and MessageHandler annotations:
     // execWarRuntime ('org.eclipse.jetty:jetty-annotations:10.0.18') // Apache 2.0
-    execWarRuntimeOnly 'org.apache.logging.log4j:log4j-slf4j18-impl:2.18.0'
+    execWarRuntimeOnly 'org.apache.logging.log4j:log4j-slf4j2-impl:2.22.0'
 }
 
 // setup task dependencies to make sure the start sourceSets always get run
@@ -266,7 +266,7 @@ war {
     destinationDirectory = projectDir.parentFile
     archiveFileName = 'moqui.war'
     // add MoquiInit.properties to the WEB-INF/classes dir for the deployed war mode of operation
-    from(fileTree(dir: destinationDir, includes: ['MoquiInit.properties'])) { into 'WEB-INF/classes' }
+    from(fileTree(dir: destinationDirectory, includes: ['MoquiInit.properties'])) { into 'WEB-INF/classes' }
     // this excludes the classes in sourceSets.main.output (better to have the jar file built above)
     classpath = configurations.runtimeClasspath - configurations.providedCompile
     classpath file(jar.archivePath)

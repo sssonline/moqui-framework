@@ -806,18 +806,6 @@ class EntityDbMeta {
         }
         return created
     }
-    int createIndexesForExistingTables() {
-        int created = 0
-        for (String en in efi.getAllEntityNames()) {
-            EntityDefinition ed = efi.getEntityDefinition(en)
-            if (ed.isViewEntity) continue
-            if (tableExists(ed)) {
-                int result = createIndexes(ed, true)
-                created += result
-            }
-        }
-        return created
-    }
     int dropAllForeignKeys() {
         int dropped = 0
         for (String en in efi.getAllEntityNames()) {

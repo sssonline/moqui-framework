@@ -63,7 +63,7 @@ class EntityDataLoaderImpl implements EntityDataLoader {
     Set<String> dataTypes = new HashSet<String>()
     List<String> componentNameList = new LinkedList<String>()
 
-    int transactionTimeout = 7200
+    int transactionTimeout = 3600
     boolean useTryInsert = false
     boolean onlyCreate = false
     boolean dummyFks = false
@@ -227,8 +227,8 @@ class EntityDataLoaderImpl implements EntityDataLoader {
                         if (edf instanceof EntityDatasourceFactoryImpl) {
                             EntityDefinition ed = efi.getEntityDefinition(entityName)
                             if (ed.isViewEntity) continue
-                            efi.getEntityDbMeta().createIndexes(ed, true)
-                            efi.getEntityDbMeta().createForeignKeys(ed, true)
+                            efi.getEntityDbMeta().createIndexes(ed, true, null)
+                            efi.getEntityDbMeta().createForeignKeys(ed, true, null, null)
 
                         }
                     }

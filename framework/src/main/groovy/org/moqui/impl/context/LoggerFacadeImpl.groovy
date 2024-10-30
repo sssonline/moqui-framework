@@ -42,8 +42,9 @@ class LoggerFacadeImpl implements LoggerFacade {
     @Override
     void log(int level, String message, Throwable thrown) {
         switch (level) {
-            case TRACE_INT: logger.trace(message, thrown); break
-            case DEBUG_INT: logger.debug(message, thrown); break
+            //TODO: this is a bandaid till we figure out why this is not working for trace and debug
+            case TRACE_INT: logger.trace(message, thrown); logger.info(message, thrown); break
+            case DEBUG_INT: logger.debug(message, thrown); logger.info(message, thrown); break
             case INFO_INT: logger.info(message, thrown); break
             case WARN_INT: logger.warn(message, thrown); break
             case ERROR_INT: logger.error(message, thrown); break

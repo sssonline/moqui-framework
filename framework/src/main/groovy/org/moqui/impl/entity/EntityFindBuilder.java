@@ -243,7 +243,6 @@ public class EntityFindBuilder extends EntityQueryBuilder {
                     // first link, add link entity for this one only, for others add related link entity
                     outWhereCondition = makeSqlViewTableName(linkEntityDefinition, localBuilder, outWhereCondition, localHavingCondition);
                     localBuilder.append(" ").append(joinFromAlias);
-
                     joinedAliasSet.add(joinFromAlias);
                 } else {
                     // make sure the left entity alias is already in the join...
@@ -408,6 +407,7 @@ public class EntityFindBuilder extends EntityQueryBuilder {
 
     public EntityConditionImplBase makeSqlViewTableName(EntityDefinition localEntityDefinition, StringBuilder localBuilder,
                 EntityConditionImplBase localWhereCondition, EntityConditionImplBase localHavingCondition) {
+
         EntityJavaUtil.EntityInfo entityInfo = localEntityDefinition.entityInfo;
         EntityConditionImplBase outWhereCondition = localWhereCondition;
         if (entityInfo.isView) {
@@ -515,7 +515,6 @@ public class EntityFindBuilder extends EntityQueryBuilder {
         for (int i = 0; i < fieldInfoArray.length; i++) {
             FieldInfo aliasFi = fieldInfoArray[i];
             if (!aliasFi.entityAliasUsedSet.contains(entityAlias)) continue;
-
             if (localEntityDefinition.isViewEntity) {
                 // get the outer alias node
                 String outerAliasField = aliasFi.aliasFieldName;

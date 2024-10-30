@@ -279,7 +279,13 @@ public class EntityQueryBuilder implements Runnable {
                 sqlTopLevel.append(fullColName);
                 if (appendCloseParen) sqlTopLevel.append(")");
                 // H2 (and perhaps other DBs?) require a unique name for each selected column, even if not used elsewhere; seems like a bug...
-                if (addUniqueAs && fullColName.contains(".")) sqlTopLevel.append(" AS ").append(sanitizeColumnName(fullColName));
+                if (addUniqueAs && fullColName.contains(".")){
+                    if(sanitizeColumnName(fullColName).length() > 256){
+                        sqlTopLevel.append(" AS ").append(fi.aliasFieldName);
+                    }else{
+                        sqlTopLevel.append(" AS ").append(sanitizeColumnName(fullColName));
+                    }
+                }
             }
 
         } else {
