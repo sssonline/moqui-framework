@@ -349,6 +349,7 @@ task load(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks
     workingDir = '.'; jvmArgs = ['-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
+    environment 'LOAD_DELAY_INDEX_ON_CREATE', 'true'
     main = '-jar'
     def argList = [warName, 'load']
     if (project.properties.containsKey('types')) argList.add("types=${types}")
@@ -359,6 +360,7 @@ task loadProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks
     workingDir = '.'; jvmArgs = ['-XX:+UseG1GC']
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
+    environment 'LOAD_DELAY_INDEX_ON_CREATE', 'true'
     main = '-jar'
     def argList = [warName, 'load']
     if (project.properties.containsKey('types')) argList.add("types=${types}")

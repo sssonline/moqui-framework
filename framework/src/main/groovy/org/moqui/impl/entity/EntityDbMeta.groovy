@@ -119,7 +119,10 @@ class EntityDbMeta {
         if (doCreate) {
             createTable(ed)
             // create explicit and foreign key auto indexes
-            createIndexes(ed, false)
+            if ( !(System.getenv('LOAD_DELAY_INDEX_ON_CREATE') == 'true')) {
+                logger.warn('creating indexes')
+                createIndexes(ed, false)
+            }
             // create foreign keys to all other tables that exist
             createForeignKeys(ed, false)
         } else {
