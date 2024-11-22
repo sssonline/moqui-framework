@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [ -z "$MOQUI_HOME" ]; then
-  MOQUI_HOME=~/src/moqui2
+  MOQUI_HOME=~/src/moqui
 fi
 
 backup_root=~/src/MoquiBackup/MoquiH2Backup 
