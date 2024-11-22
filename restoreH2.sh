@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 if [ -z "$MOQUI_HOME" ]; then
-  MOQUI_HOME=~/src/moqui
+  MOQUI_HOME=~/src/moqui2
 fi
 
-backup_root=~/src/MoquiBackup/MoquiH2Backup
+backup_root=~/src/MoquiBackup/MoquiH2Backup 
 gradle cleanDb
 cp -R ${backup_root}/backup$1/db/derby ${MOQUI_HOME}/runtime/db/
 cp -R ${backup_root}/backup$1/db/h2 ${MOQUI_HOME}/runtime/db/

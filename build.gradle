@@ -647,6 +647,7 @@ task load(type: JavaExec) {
     description "Run Moqui to load data; to specify data types use something like: gradle load -Ptypes=seed,seed-initial,install"
     dependsOn checkRuntime, allBuildTasks
     systemProperties = ['moqui.conf':moquiConfDev, 'moqui.runtime':moquiRuntime]
+    environment 'LOAD_DELAY_INDEX_ON_CREATE', 'true'
     workingDir = '.'; jvmArgs = ['-server', '-XX:+UseG1GC']; main = '-jar'
     args = [warName, 'load', (project.properties.containsKey('types') ? "types=${types}" : "types=all")]
     if (project.properties.containsKey('conf')) args.add("conf=${conf}")
@@ -666,6 +667,7 @@ task loadSeedInitial(type: JavaExec) {
 task loadProduction(type: JavaExec) {
     dependsOn checkRuntime, allBuildTasks
     systemProperties = ['moqui.conf':moquiConfProduction, 'moqui.runtime':moquiRuntime]
+    environment 'LOAD_DELAY_INDEX_ON_CREATE', 'true'
     workingDir = '.'; jvmArgs = ['-server', '-XX:+UseG1GC']; main = '-jar'
     args = [warName, 'load', (project.properties.containsKey('types') ? "types=${types}" : "types=seed,seed-initial,install")]
     if (project.properties.containsKey('conf')) args.add("conf=${conf}")

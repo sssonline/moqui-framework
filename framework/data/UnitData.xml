@@ -130,6 +130,7 @@ along with this software (see the LICENSE.md file). If not, see
     <moqui.basic.Uom abbreviation="rd" description="Rod" uomId="LEN_rd" uomTypeEnumId="UT_LENGTH_MEASURE"/>
     <moqui.basic.Uom abbreviation="yd" description="Yard" uomId="LEN_yd" uomTypeEnumId="UT_LENGTH_MEASURE"/>
 
+
     <moqui.basic.UomConversion uomConversionId="LEN_A_m" uomId="LEN_A" toUomId="LEN_m" conversionFactor="0.0000000001"/> <!-- 10 to the -10 meters -->
     <moqui.basic.UomConversion uomConversionId="LEN_A_in" uomId="LEN_A" toUomId="LEN_in" conversionFactor="0.000000004"/>
 
@@ -475,4 +476,24 @@ along with this software (see the LICENSE.md file). If not, see
     <moqui.basic.UomDimTypeGroupMember uomDimTypeGroupEnumId="UdtgPerson" uomDimensionTypeId="Weight" sequenceNum="5"/>
     <moqui.basic.UomDimTypeGroupMember uomDimTypeGroupEnumId="UdtgPerson" uomDimensionTypeId="Height" sequenceNum="6"/>
     <moqui.basic.UomDimTypeGroupMember uomDimTypeGroupEnumId="UdtgPerson" uomDimensionTypeId="Volume" sequenceNum="7"/>
+
+    <!-- These are for the Saticoy products import, for them but still useful for everyone -->
+    <moqui.basic.Uom abbreviation="se" description="Set" uomId="OTH_se" uomTypeEnumId="UT_OTHER_MEASURE"/>
+<!--    <moqui.basic.Uom abbreviation="pa" description="Pail" uomId="VLIQ_pa" uomTypeEnumId="UT_VOLUME_LIQ_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="pk" description="Pack" uomId="VDRY_pk" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="pl" description="Pallet" uomId="VDRY_pl" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="rl" description="Roll" uomId="OTH_rl" uomTypeEnumId="UT_OTHER_MEASURE"/>-->
+<!--    <moqui.basic.Uom abbreviation="bg" description="Bags" uomId="VDRY_bg" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="br" description="Barrel" uomId="VDRY_br" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="bu" description="Bundle" uomId="VDRY_bu" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="bx" description="Box" uomId="VDRY_bx" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="cl" description="Cylinder" uomId="VLIQ_cl" uomTypeEnumId="UT_VOLUME_LIQ_MEAS"/>-->
+<!--    <moqui.basic.Uom abbreviation="cs" description="Case" uomId="VDRY_cs" uomTypeEnumId="UT_VOLUME_DRY_MEAS"/>-->
+
+
+
+
+
+
+
 </entity-facade-xml>

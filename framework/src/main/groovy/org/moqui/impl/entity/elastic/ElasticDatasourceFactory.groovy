@@ -96,7 +96,7 @@ class ElasticDatasourceFactory implements EntityDatasourceFactory {
         try { ed = efi.getEntityDefinition(entityName) }
         catch (EntityException e) { return false }
         if (ed == null) return false
-        checkCreateDocumentIndex(ed)
+        //checkCreateDocumentIndex(ed)
         return true
     }
     @Override
@@ -146,8 +146,8 @@ class ElasticDatasourceFactory implements EntityDatasourceFactory {
             mapList.add(evMap)
         }
 
-        checkCreateDocumentIndex(ed)
-        elasticClient.bulkIndex(getIndexName(ed), (String) null, idField, (List<Map>) mapList, true)
+        //checkCreateDocumentIndex(ed)
+        //elasticClient.bulkIndex(getIndexName(ed), (String) null, idField, (List<Map>) mapList, true)
     }
 
     @Override
