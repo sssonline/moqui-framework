@@ -114,14 +114,14 @@ class UserFacadeImpl implements UserFacade {
             EntityValue userAccount = (EntityValue) null
             if (sesUsername != null && !sesUsername.isEmpty()) {
                 EntityCondition usernameCond = eci.entityFacade.getConditionFactory()
-                        .makeCondition("username", EntityCondition.ComparisonOperator.EQUALS, username).ignoreCase()
+                        .makeCondition("username", EntityCondition.ComparisonOperator.EQUALS, sesUsername).ignoreCase()
                 userAccount = eci.getEntity().find("moqui.security.UserAccount")
                         .condition(usernameCond).useCache(false).disableAuthz().one()
             }
 
             if (userAccount != null && "Y".equals(userAccount.getNoCheckSimple("hasLoggedOut"))) {
                 // logout user through Shiro, invalidate session, continue
-                logger.info("User ${sesUsername} is authenticated in session but hasLoggedOut elsewhere, logging out")
+                logger.warn("User ${sesUsername} is authenticated in session but hasLoggedOut elsewhere, logging out")
                 webSubject.logout()
                 // Shiro invalidates session, but make sure just in case
                 HttpSession oldSession = request.getSession(false)
