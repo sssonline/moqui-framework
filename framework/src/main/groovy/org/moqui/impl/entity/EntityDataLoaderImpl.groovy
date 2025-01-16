@@ -157,8 +157,8 @@ class EntityDataLoaderImpl implements EntityDataLoader {
 
         internalRun(exh, ech, ejh)
 
-        // Initialize all tables and foreign keys if a load location is passed
-        if ( this.locationList ) initDatasourceTables()
+        // Initialize all tables, foreign keys, and indexes if LOAD_INIT_DATASOURCE_TABLES
+        if ( System.getenv('LOAD_INIT_DATASOURCE_TABLES') == 'true' ) initDatasourceTables()
 
         return exh.getValuesRead() + ech.getValuesRead() + ejh.getValuesRead()
     }
