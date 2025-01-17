@@ -263,8 +263,16 @@ along with this software (see the LICENSE.md file). If not, see
                 ExecutionContext ec = context.ec
                 EntityDataWriter edw = ec.entity.makeDataWriter().allEntities()
 
-                if (fromDate) edw.fromDate(ec.l10n.parseTimestamp(fromDate, null))
-                if (thruDate) edw.thruDate(ec.l10n.parseTimestamp(thruDate, null))
+                if (fromDate && fromDate instanceof String) {
+                    edw.fromDate(ec.l10n.parseTimestamp(fromDate, null))
+                } else if (fromDate) {
+                    edw.fromDate(fromDate)
+                }
+                if (thruDate && thruDate instanceof String) {
+                    edw.thruDate(ec.l10n.parseTimestamp(thruDate, null))
+                } else if (thruDate) {
+                    edw.thruDate(thruDate)
+                }
                 if (entitiesToSkip) edw.entityNames(entitiesToSkip)
 
                 String baseName = baseFilename

@@ -217,7 +217,15 @@ class EntityDataWriterImpl implements EntityDataWriter {
                 try {
                     if (!eli.hasNext()) continue
 
-                    String filenameWithinZip = pathWithinZip + '/' + en + (JSON.is(fileType) ? ".json" : ".xml")
+                    int filePart = 1 // Start with the first part
+                    int recordCount = 0
+                    int filePartWidth = 8 // Define fixed width for zero padding
+                    int recordsPerFile = 10000 // Configurable record limit per file part
+                    String baseFilename = pathWithinZip + '/' + en
+                    String fileExtension = JSON.is(fileType) ? ".json" : ".xml"
+                    String paddedFilePart = String.format("%0" + filePartWidth + "d", filePart)
+                    String filenameWithinZip = "${baseFilename}.${paddedFilePart}${fileExtension}"
+
                     ZipEntry e = new ZipEntry(filenameWithinZip)
                     out.putNextEntry(e)
                     try {
@@ -227,12 +235,43 @@ class EntityDataWriterImpl implements EntityDataWriter {
                         EntityValue ev
                         while ((ev = eli.next()) != null) {
                             curValuesWritten += writeValue(ev, pw, useMaster)
+                            recordCount++
+
+                            // Check if the record limit is reached for this part
+                            if (recordCount >= recordsPerFile) {
+                                // End the current file part
+                                endFile(pw)
+                                pw.flush()
+                                out.closeEntry()
+
+                                // Log and add a message for this part
+                                efi.ecfi.eci.message.addMessage(efi.ecfi.resource.expand(
+                                        'Wrote ${curValuesWritten} records to ${filename}',
+                                        '',
+                                        [curValuesWritten: curValuesWritten, filename: filenameWithinZip] // Explicitly pass filename
+                                ))
+
+                                // Reset for the next file part
+                                filePart++
+                                recordCount = 0
+                                paddedFilePart = String.format("%0" + filePartWidth + "d", filePart)
+                                filenameWithinZip = "${baseFilename}.${paddedFilePart}${fileExtension}"
+                                e = new ZipEntry(filenameWithinZip)
+                                out.putNextEntry(e)
+                                startFile(pw)
+                            }
                         }
 
+                        // End the last file part
                         endFile(pw)
-
                         pw.flush()
-                        efi.ecfi.eci.message.addMessage(efi.ecfi.resource.expand('Wrote ${curValuesWritten} records to ${filename}','',[curValuesWritten:curValuesWritten,filename:filenameWithinZip]))
+
+                        // Log the final message for the last part
+                        efi.ecfi.eci.message.addMessage(efi.ecfi.resource.expand(
+                                'Wrote ${curValuesWritten} records to ${filename}',
+                                '',
+                                [curValuesWritten: curValuesWritten, filename: filenameWithinZip] // Explicitly pass filename
+                        ))
 
                         valuesWritten += curValuesWritten
                     } finally {
@@ -241,6 +280,8 @@ class EntityDataWriterImpl implements EntityDataWriter {
                 } finally {
                     eli.close()
                 }
+
+
             }
         } finally {
             out.close()
