@@ -28,7 +28,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- deprecated: <parameter name="originalDocumentList" type="List" required="false"/> -->
         </out-parameters>
         <actions>
-            <set field="elasticClient" from="ec.factory.elastic.getClient(clusterName)"/>
+<!--            <set field="elasticClient" from="ec.factory.elastic.getClient(clusterName)"/>-->
             <if condition="elasticClient == null"><return type="danger" message="No Elastic Client found for cluster name ${clusterName}, not indexing documents"/></if>
 
             <if condition="verifyIndexes"><script>elasticClient.verifyDataDocumentIndexes(documentList)</script></if>
@@ -41,7 +41,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="clusterName" default-value="default"/>
         </in-parameters>
         <actions>
-            <set field="elasticClient" from="ec.factory.elastic.getClient(clusterName)"/>
+<!--            <set field="elasticClient" from="ec.factory.elastic.getClient(clusterName)"/>-->
             <if condition="elasticClient == null"><return type="danger" message="No Elastic Client found for cluster name ${clusterName}, not indexing documents"/></if>
 
             <script>elasticClient.putDataDocumentMappings(indexName)</script>
@@ -76,7 +76,7 @@ along with this software (see the LICENSE.md file). If not, see
                 import java.util.concurrent.Future
 
                 ExecutionContext ec = context.ec
-                def elasticClient = ec.factory.elastic.getClient(clusterName)
+                //def elasticClient = ec.factory.elastic.getClient(clusterName)
                 if (elasticClient == null) {
                     ec.message.addMessage("No Elastic Client found for cluster name ${clusterName}, not indexing documents", "danger")
                     return
@@ -166,7 +166,7 @@ along with this software (see the LICENSE.md file). If not, see
             import java.math.RoundingMode
 
             ExecutionContext ec = context.ec
-            def elasticClient = ec.factory.elastic.getClient((String) clusterName)
+            //def elasticClient = ec.factory.elastic.getClient((String) clusterName)
             if (elasticClient == null) {
                 ec.message.addMessage("No Elastic Client found for cluster name ${clusterName}, not running search", "danger")
                 return
@@ -329,7 +329,7 @@ along with this software (see the LICENSE.md file). If not, see
             String index = indexName
             if (dataDocumentId) index = ((String) dataDocumentId).split(",").collect({ ElasticFacadeImpl.ddIdToEsIndex(it) }).join(",")
 
-            def elasticClient = ec.factory.elastic.getClient((String) clusterName)
+            //def elasticClient = ec.factory.elastic.getClient((String) clusterName)
             if (elasticClient == null) {
                 ec.message.addMessage("No Elastic Client found for cluster name ${clusterName}, not deleting document ${documentId}", "danger")
                 return
@@ -361,7 +361,7 @@ along with this software (see the LICENSE.md file). If not, see
                 return
             }
 
-            def elasticClient = ec.factory.elastic.getClient((String) clusterName)
+            //def elasticClient = ec.factory.elastic.getClient((String) clusterName)
 
             Long thruMillis = null
             if (daysToKeep != null) {
@@ -397,8 +397,8 @@ along with this software (see the LICENSE.md file). If not, see
             import org.moqui.context.ExecutionContext
             ExecutionContext ec = context.ec
 
-            def elasticClient = ec.factory.elastic.getClient((String) clusterName)
-            elasticClient.deleteIndex((String) indexName)
+            //def elasticClient = ec.factory.elastic.getClient((String) clusterName)
+            //elasticClient.deleteIndex((String) indexName)
         ]]></script></actions>
     </service>
 </services>
