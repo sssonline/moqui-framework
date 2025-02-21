@@ -91,7 +91,9 @@ public class ServiceCallSyncImpl extends ServiceCallImpl implements ServiceCallS
                             String ipn = inParameterNames.get(paramIndex);
                             if (!ObjectUtilities.isEmpty(currentParms.get(ipn))) continue;
                             if (!ObjectUtilities.isEmpty(parameters.get(ipn))) {
-                                currentParms.put(ipn, parameters.get(ipn));
+                                // This behavior is not the same as doing a single call; it makes it impossible to pass
+                                // in a null value if the specific parameter is a parameter on the submitting screen.
+                                // currentParms.put(ipn, parameters.get(ipn));
                             } else if (!ObjectUtilities.isEmpty(result.get(ipn))) {
                                 currentParms.put(ipn, result.get(ipn));
                             }
