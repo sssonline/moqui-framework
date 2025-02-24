@@ -95,7 +95,8 @@ public class ServiceCallSyncImpl extends ServiceCallImpl implements ServiceCallS
                             String ipn = inParameterNames.get(paramIndex);
                             if (!ObjectUtilities.isEmpty(currentParms.get(ipn))) continue;
                             if (!ObjectUtilities.isEmpty(parameters.get(ipn))) {
-                                currentParms.put(ipn, parameters.get(ipn));
+                                //greedy line taking in params when not wanted, keep an eye on this for any strange behavior
+                                //currentParms.put(ipn, parameters.get(ipn));
                             } else if (!ObjectUtilities.isEmpty(result.get(ipn))) {
                                 currentParms.put(ipn, result.get(ipn));
                             }
