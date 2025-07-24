@@ -1,135 +1,30 @@
 #!/usr/bin/env bash
 
 # This program retrieves snapshots from remote systems and loads them into moqui.
-# It requires that you create a .env file with the following variables:
-# For each dataset in VALID_DATASETS, a corresponding BASE_URL and DATASET_AUTH variable must be defined.
-# Once this file is in place, this may be in various ways:
-# 1. Run the script with no arguments to process all datasets.
-# 2. Run the script with one or more dataset codes to process only those datasets.
-# 3. Run the script with a dataset code and a date suffix to process a specific snapshot.
-# Example: ./getGebbersSnapshots.sh GS GW GF
-# Example: ./getGebbersSnapshots.sh GS-2021-01-01 GW-2021-01-01 GF-2021-01-01
-# Example: ./getGebbersSnapshots.sh GS-2021-01-01b
-#SNAPSHOT_PATH="$HOME/dbp/Work/Payroll/Backups"
-#MAX_HEAP_THRESHOLD_PERCENT=80
-#NON_HEAP_MEMORY_BUFFER_GB=8
+# It requires a .env file with:
+#   VALID_DATASETS, COMMON_SNAPSHOT_URL_PATH, SNAPSHOT_PATH,
+#   MAX_HEAP_THRESHOLD_PERCENT, NON_HEAP_MEMORY_BUFFER_GB,
+#   and for each dataset in VALID_DATASETS: BASE_URL_<DS>, DATASET_AUTH_<DS>
 #
-#COMMON_SNAPSHOT_URL_PATH=/apps/tools/Entity/DataSnapshot/downloadSnapshot?filename=
-#
-#VALID_DATASETS="GS GW GF"
-#
-#BASE_URL_GS=http://salary.gebbersfarms.com:8083
-#DATASET_AUTH_GS="backup:PASSWORD"
-#
-#BASE_URL_GW=http://warehouse.gebbersfarms.com:8081
-#DATASET_AUTH_GW="backup:PASSWORD"
-#
-#BASE_URL_GF=http://orchard.gebbersfarms.com:8082
-#DATASET_AUTH_GF="backup:PASSWORD"
+# Usage examples:
+#   ./getSnapshots.sh              # all datasets
+#   ./getSnapshots.sh GS GW GF     # specific datasets
+#   ./getSnapshots.sh GS-2021-01-01b  # specific dated suffix
 
-# Corresponding authentication credentials for each dataset
-if [[ -f ".env" ]]; then
-    set -a  # Automatically export all variables
-    source .env
-    set +a  # Disable automatic exporting
-else
-    echo "Error: .env file not found. Please provide credentials."
-    exit 1
-fi
+set -o nounset
+set -o errexit
+set -o pipefail
 
-d=$(date +%Y-%m-%d)
-export scheduled_job_check_time=0
+# -------------------------
+# Functions
+# -------------------------
 
-# Validate required environment variables
-if [[ -z "$VALID_DATASETS" || -z "$COMMON_SNAPSHOT_URL_PATH" || -z "$SNAPSHOT_PATH" || -z "$MAX_HEAP_THRESHOLD_PERCENT" || -z "$NON_HEAP_MEMORY_BUFFER_GB" ]]; then
-    echo "Error: One or more required environment variables are missing in the .env file."
-    exit 1
-fi
-
-# Split VALID_DATASETS into an array
-if [[ -n "$VALID_DATASETS" ]]; then
-    IFS=' ' read -r -a valid_datasets <<< "$VALID_DATASETS"
-else
-    echo "Error: VALID_DATASETS is not defined or empty in .env."
-    exit 1
-fi
-
-# Initialize dataset URLs and auth arrays
-dataset_urls=()
-dataset_auth=()
-
-# Build dataset_urls and dataset_auth dynamically
-for dataset in "${valid_datasets[@]}"; do
-    base_url_var="BASE_URL_${dataset}"
-    auth_var="DATASET_AUTH_${dataset}"
-
-    # Debugging: Print the values being resolved
-#    echo "Processing dataset: $dataset"
-#    echo "Base URL var: $base_url_var, Value: ${!base_url_var}"
-#    echo "Auth var: $auth_var, Value: ${!auth_var}"
-
-    # Check if required variables exist
-    if [[ -z "${!base_url_var}" || -z "${!auth_var}" ]]; then
-        echo "Error: Missing environment variable(s) for dataset $dataset. Expected $base_url_var and $auth_var."
-        exit 1
-    fi
-
-    # Append to arrays
-    dataset_urls+=("${!base_url_var}")
-    dataset_auth+=("${!auth_var}")
-done
-
-# Debug: Print resolved datasets, URLs, and auths
-#echo "Valid datasets: ${valid_datasets[*]}"
-#echo "Dataset URLs: ${dataset_urls[*]}"
-#echo "Dataset Auth: ${dataset_auth[*]}"
-
-# Function to check if a dataset is valid
-is_valid_dataset() {
-    local dataset="$1"
-    for valid in "${valid_datasets[@]}"; do
-        if [[ "$dataset" == "$valid" ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Process command-line arguments
-selected_datasets=()
-if [[ $# -eq 0 ]]; then
-    # Default to all datasets if no arguments provided
-    selected_datasets=("${valid_datasets[@]}")
-else
-    for arg in "$@"; do
-        # Check if the argument matches a dataset with an optional suffix
-        if [[ "$arg" =~ ^([A-Z]{2})-([0-9]{4}-[0-9]{2}-[0-9]{2}.*)$ ]]; then
-            base_dataset="${BASH_REMATCH[1]}"
-            if is_valid_dataset "$base_dataset"; then
-                selected_datasets+=("$arg")
-            else
-                echo "Invalid dataset: $base_dataset. Valid options are: ${valid_datasets[*]}"
-                exit 1
-            fi
-        elif is_valid_dataset "$arg"; then
-            selected_datasets+=("$arg")
-        else
-            echo "Invalid dataset: $arg. Valid options are: ${valid_datasets[*]}"
-            exit 1
-        fi
-    done
-fi
-
-# Function to calculate max heap size
 calculate_max_heap_size() {
-    # Detect the operating system
     OS_TYPE=$(uname)
 
-    if [ "$OS_TYPE" == "Darwin" ]; then
-        # macOS: Get total memory in bytes
+    if [ "$OS_TYPE" = "Darwin" ]; then
         total_mem_bytes=$(sysctl -n hw.memsize)
-    elif [ "$OS_TYPE" == "Linux" ]; then
-        # Linux: Get total memory in kilobytes and convert to bytes
+    elif [ "$OS_TYPE" = "Linux" ]; then
         total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
         total_mem_bytes=$((total_mem_kb * 1024))
     else
@@ -137,47 +32,107 @@ calculate_max_heap_size() {
         exit 1
     fi
 
-    # Calculate the thresholds
-    threshold_bytes=$((total_mem_bytes * MAX_HEAP_THRESHOLD_PERCENT / 100))
-    buffer_bytes=$((NON_HEAP_MEMORY_BUFFER_GB * 1024 * 1024 * 1024))
+    threshold_bytes=$(( total_mem_bytes * MAX_HEAP_THRESHOLD_PERCENT / 100 ))
+    buffer_bytes=$(( NON_HEAP_MEMORY_BUFFER_GB * 1024 * 1024 * 1024 ))
 
-    # Calculate total memory minus buffer
-    minus_buffer_bytes=$((total_mem_bytes - buffer_bytes))
+    minus_buffer_bytes=$(( total_mem_bytes - buffer_bytes ))
 
-    # Determine the greater value
     if [ "$threshold_bytes" -gt "$minus_buffer_bytes" ]; then
         max_heap_bytes=$threshold_bytes
     else
         max_heap_bytes=$minus_buffer_bytes
     fi
 
-    # Ensure the max heap size is not negative or zero
     if [ "$max_heap_bytes" -le 0 ]; then
         echo "Error: Calculated Java heap size is non-positive."
         exit 1
     fi
 
-    # Convert bytes to megabytes for the -Xmx parameter
-    max_heap_mb=$((max_heap_bytes / (1024 * 1024)))
-
-    # Return the max heap size in the format expected by Java
+    max_heap_mb=$(( max_heap_bytes / (1024 * 1024) ))
     echo "${max_heap_mb}m"
 }
 
-# Calculate the maximum heap size
-MAX_HEAP_SIZE=$(calculate_max_heap_size)
-echo "Setting Java maximum heap size to: $MAX_HEAP_SIZE"
+is_valid_dataset() {
+    local dataset="$1"
+    for valid in "${valid_datasets[@]}"; do
+        if [ "$dataset" = "$valid" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
-# Arrays to store durations
-import_durations=()
-indexing_durations=()
-total_durations=()
+run_backup() {
+    local label="$1"
+    if [ -x ./backupH2.sh ]; then
+        if [ -d runtime/db/h2 ] || [ -d ./runtime/db/h2 ]; then
+            ./backupH2.sh "$label" || echo "backupH2.sh failed for $label"
+        else
+            echo "Skipping backup for $label: runtime/db/h2 not found."
+        fi
+    else
+        echo "Skipping backup for $label: backupH2.sh not found or not executable."
+    fi
+}
 
-# Function to process each dataset
+chunk_and_process_dataset() {
+    local dataset="$1"
+    local file="$2"
+
+    local temp_dir
+    temp_dir=$(mktemp -d -t snapchunk.XXXXXX)
+
+    unzip -q "$file" -d "$temp_dir"
+
+    # Collect XML files (alphabetical)
+    files=()
+    while IFS= read -r line; do
+        files+=("$line")
+    done < <(find "$temp_dir" -type f -name '*.xml' | sort)
+
+    local total_files=${#files[@]}
+    local chunk_size="${CHUNK_SIZE:-1000}"
+
+    if [ "$total_files" -eq 0 ]; then
+        echo "No XML files found in $file"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    local chunk_count=$(( (total_files + chunk_size - 1) / chunk_size ))
+    echo "Splitting $total_files files into $chunk_count chunks of up to $chunk_size files each."
+
+    for ((i = 0; i < chunk_count; i++)); do
+        local chunk_dir="$temp_dir/chunk_$i"
+        mkdir "$chunk_dir"
+
+        for ((j = 0; j < chunk_size; j++)); do
+            local idx=$(( i * chunk_size + j ))
+            [ "$idx" -ge "$total_files" ] && break
+            cp "${files[$idx]}" "$chunk_dir/"
+        done
+
+        local chunk_zip="$temp_dir/${dataset}_chunk_$i.zip"
+        (
+            cd "$chunk_dir"
+            zip -q -r "$chunk_zip" .
+        )
+
+        echo "Processing chunk $i ($chunk_zip)..."
+        export LOAD_DELAY_INDEX_ON_CREATE=true
+        java -server -Djava.awt.headless=true -XX:-OmitStackTraceInFastThrow -XX:+UseG1GC -Xmx"$MAX_HEAP_SIZE" -jar moqui.war load raw location="$chunk_zip"
+        unset LOAD_DELAY_INDEX_ON_CREATE
+
+        rm -rf "$chunk_dir" "$chunk_zip"
+    done
+
+    rm -rf "$temp_dir"
+}
+
 process_dataset() {
     local dataset="$1"
 
-    # Determine the base dataset and suffix
+    # Determine base dataset and suffix
     if [[ "$dataset" =~ ^([A-Z]{2})-([0-9]{4}-[0-9]{2}-[0-9]{2}.*)$ ]]; then
         base_dataset="${BASH_REMATCH[1]}"
         dataset_suffix="${BASH_REMATCH[2]}"
@@ -188,32 +143,28 @@ process_dataset() {
         file="${SNAPSHOT_PATH/#\~/$HOME}/${base_dataset}-${dataset_suffix}.zip"
     fi
 
-    # Ensure file path variables are expanded
     file=$(eval echo "$file")
 
-    # Find the index of the dataset in the valid_datasets array
+    # Find dataset index
     local dataset_index=-1
     for i in "${!valid_datasets[@]}"; do
-        if [[ "${valid_datasets[$i]}" == "$base_dataset" ]]; then
+        if [ "${valid_datasets[$i]}" = "$base_dataset" ]; then
             dataset_index=$i
             break
         fi
     done
 
-    # Check if the dataset was found
-    if [[ $dataset_index -eq -1 ]]; then
-        echo "Error: Dataset $base_dataset not found in valid_datasets."
+    if [ "$dataset_index" -eq -1 ]; then
+        echo "Error: Dataset $base_dataset not in VALID_DATASETS."
         return 1
     fi
 
-    # Adjust the URL for the correct suffix
     url="${dataset_urls[$dataset_index]}${COMMON_SNAPSHOT_URL_PATH}${base_dataset}-${dataset_suffix}.zip"
 
-    # Check if the file exists; if not, download it
-    if [[ ! -f "$file" ]]; then
+    if [ ! -f "$file" ]; then
         echo "File $file not found. Downloading..."
         curl -v -u "${dataset_auth[$dataset_index]}" --insecure "$url" --output "$file"
-        if [[ $? -ne 0 ]]; then
+        if [ $? -ne 0 ]; then
             echo "Error: Failed to download $file."
             return 1
         fi
@@ -221,61 +172,130 @@ process_dataset() {
         echo "File $file already exists. Skipping download."
     fi
 
-    # Clean and build the project
     gradle cleanAll
     gradle build
 
-    # Record start time for import
-    local start_import=$(date +%s)
+    local start_import
+    start_import=$(date +%s)
 
-    # Load data in raw mode
-    export LOAD_DELAY_INDEX_ON_CREATE=true
-    java -server -Djava.awt.headless=true -XX:-OmitStackTraceInFastThrow -XX:+UseG1GC -Xmx"$MAX_HEAP_SIZE" -jar moqui.war load raw location="$file"
-    unset LOAD_DELAY_INDEX_ON_CREATE
+    # Chunked load
+    chunk_and_process_dataset "$dataset" "$file"
 
-    # Record start time for indexing
-    local start_indexing=$(date +%s)
+    local start_indexing
+    start_indexing=$(date +%s)
 
-    # Create indexes and foreign keys
     export LOAD_INIT_DATASOURCE_TABLES=true
     java -server -Djava.awt.headless=true -XX:-OmitStackTraceInFastThrow -XX:+UseG1GC -Xmx"$MAX_HEAP_SIZE" -jar moqui.war load raw types=none
     unset LOAD_INIT_DATASOURCE_TABLES
 
-    # Record end time
-    local end=$(date +%s)
+    local end
+    end=$(date +%s)
 
-    # Perform backups
+    # Backups
     if [[ "$dataset" =~ ^[A-Z]{2}- ]]; then
-        # Only perform the backup for the dataset with the suffix
-        ./backupH2.sh "${dataset}"
+        run_backup "$dataset"
     else
-        # Perform both backups for standard datasets
-        ./backupH2.sh "$base_dataset"
-        ./backupH2.sh "${base_dataset}-${dataset_suffix}"
+        run_backup "$base_dataset"
+        run_backup "${base_dataset}-${dataset_suffix}"
     fi
 
-    # Calculate durations
-    local import_duration=$((start_indexing - start_import))
-    local indexing_duration=$((end - start_indexing))
-    local total_duration=$((end - start_import))
+    # Durations
+    local import_duration=$(( start_indexing - start_import ))
+    local indexing_duration=$(( end - start_indexing ))
+    local total_duration=$(( end - start_import ))
 
-    # Append durations to arrays
     import_durations+=("$import_duration")
     indexing_durations+=("$indexing_duration")
     total_durations+=("$total_duration")
 }
 
-# Process each selected dataset
+# -------------------------
+# Main
+# -------------------------
+
+# Load .env first
+if [ -f ".env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+else
+    echo "Error: .env file not found. Please provide credentials."
+    exit 1
+fi
+
+d=$(date +%Y-%m-%d)
+export scheduled_job_check_time=0
+
+# Validate env vars
+if [ -z "${VALID_DATASETS:-}" ] || \
+   [ -z "${COMMON_SNAPSHOT_URL_PATH:-}" ] || \
+   [ -z "${SNAPSHOT_PATH:-}" ] || \
+   [ -z "${MAX_HEAP_THRESHOLD_PERCENT:-}" ] || \
+   [ -z "${NON_HEAP_MEMORY_BUFFER_GB:-}" ]; then
+    echo "Error: Missing required environment variables in .env."
+    exit 1
+fi
+
+# Split datasets
+IFS=' ' read -r -a valid_datasets <<< "$VALID_DATASETS"
+
+# Build URL/auth arrays
+dataset_urls=()
+dataset_auth=()
+for dataset in "${valid_datasets[@]}"; do
+    base_url_var="BASE_URL_${dataset}"
+    auth_var="DATASET_AUTH_${dataset}"
+
+    if [ -z "${!base_url_var:-}" ] || [ -z "${!auth_var:-}" ]; then
+        echo "Error: Missing $base_url_var or $auth_var for dataset $dataset."
+        exit 1
+    fi
+    dataset_urls+=("${!base_url_var}")
+    dataset_auth+=("${!auth_var}")
+done
+
+# Heap size now that env vars exist
+MAX_HEAP_SIZE=$(calculate_max_heap_size)
+echo "Setting Java maximum heap size to: $MAX_HEAP_SIZE"
+
+# Parse CLI args
+selected_datasets=()
+if [ "$#" -eq 0 ]; then
+    selected_datasets=("${valid_datasets[@]}")
+else
+    for arg in "$@"; do
+        if [[ "$arg" =~ ^([A-Z]{2})-([0-9]{4}-[0-9]{2}-[0-9]{2}.*)$ ]]; then
+            base_dataset="${BASH_REMATCH[1]}"
+            if is_valid_dataset "$base_dataset"; then
+                selected_datasets+=("$arg")
+            else
+                echo "Invalid dataset: $base_dataset. Valid: ${valid_datasets[*]}"
+                exit 1
+            fi
+        elif is_valid_dataset "$arg"; then
+            selected_datasets+=("$arg")
+        else
+            echo "Invalid dataset: $arg. Valid: ${valid_datasets[*]}"
+            exit 1
+        fi
+    done
+fi
+
+# Duration arrays
+import_durations=()
+indexing_durations=()
+total_durations=()
+
 for dataset in "${selected_datasets[@]}"; do
     echo "Processing dataset: $dataset"
     process_dataset "$dataset"
 done
 
-# Unset environment variables
 unset scheduled_job_check_time
 
-# Display the durations after processing all datasets
-echo -e "\nExecution times:"
+echo
+echo "Execution times:"
 for i in "${!selected_datasets[@]}"; do
     dataset="${selected_datasets[$i]}"
     import_duration="${import_durations[$i]}"
@@ -285,5 +305,5 @@ for i in "${!selected_datasets[@]}"; do
     echo "$dataset Import Duration: $((import_duration / 60)) minutes and $((import_duration % 60)) seconds."
     echo "$dataset Indexing Duration: $((indexing_duration / 60)) minutes and $((indexing_duration % 60)) seconds."
     echo "$dataset Total Duration: $((total_duration / 60)) minutes and $((total_duration % 60)) seconds."
-    echo ""
+    echo
 done
