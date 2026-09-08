@@ -140,4 +140,27 @@ class L10nFacadeTests extends Specification {
 
     // TODO test parseDateTime
     // TODO test parseNumber
+
+    def "bare date parses at server-tz midnight regardless of the user timezone (Aspen #966)"() {
+        setup:
+        TimeZone serverTz = TimeZone.getDefault()
+        // a user two hours EAST of the server: the case that used to store the previous calendar day
+        TimeZone userTz = new SimpleTimeZone(serverTz.getRawOffset() + 2 * 3600 * 1000, "AspenTestPlusTwo")
+        TimeZone origUserTz = ec.user.getTimeZone()
+        ec.user.setTimeZone(userTz)
+        long serverMidnight = Timestamp.valueOf("2026-09-02 00:00:00").getTime()
+
+        expect:
+        // a bare date is a calendar day: midnight in the server's own timezone, whoever entered it
+        ec.l10n.parseTimestamp("2026-09-02", null).getTime() == serverMidnight
+        // a value carrying a time-of-day is an instant and still resolves in the user's timezone
+        ec.l10n.parseTimestamp("2026-09-02 00:00", null).getTime() == serverMidnight - 2 * 3600 * 1000
+        // a caller that names a timezone keeps it, bare date or not
+        ec.l10n.parseTimestamp("2026-09-02", null, null, userTz).getTime() == serverMidnight - 2 * 3600 * 1000
+        // shape guard: only exactly yyyy-MM-dd takes the calendar-day path
+        ec.l10n.parseTimestamp("2026-9-2", null) == null || ec.l10n.parseTimestamp("2026-9-2", null).getTime() != serverMidnight + 1
+
+        cleanup:
+        ec.user.setTimeZone(origUserTz)
+    }
 }

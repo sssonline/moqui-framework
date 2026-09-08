@@ -329,6 +329,20 @@ public class L10nFacadeImpl implements L10nFacade {
             }
         }
 
+        // A bare calendar date ("2026-09-02" — what a date-only widget posts and what a REST/service
+        // caller sends for a Timestamp parameter that means a day) names a DAY, not an instant. Resolving it
+        // at midnight in the USER's timezone and then persisting the instant in the server/database timezone
+        // moved the stored calendar day back by one for every user east of the server (US/Central user on a
+        // US/Pacific server: "2026-09-02" stored as 2026-09-01 22:00:00), which is a different fiscal period
+        // on the 1st of a month. Resolve it at midnight in the server default timezone instead — the same
+        // rule parseDate() already applies to java.sql.Date — so the stored value carries the day the user
+        // chose; a user in the server's own timezone sees no change at all. A caller that passes an explicit
+        // timeZone keeps it. Strings that carry a time-of-day are instants and still resolve in the user's
+        // timezone below. (Aspen card #966)
+        if (cal == null && timeZone == null && isBareDate(input)) {
+            cal = calendarValidator.validate(input, "yyyy-MM-dd", curLocale, TimeZone.getDefault());
+        }
+
         // try a bunch of other format strings
         if (cal == null) {
             int timestampFormatsSize = timestampFormats.size();
@@ -351,6 +365,16 @@ public class L10nFacadeImpl implements L10nFacade {
         }
 
         return null;
+    }
+    /** true for exactly yyyy-MM-dd: ten characters, digits with '-' at positions 4 and 7 (no time-of-day) */
+    static boolean isBareDate(String s) {
+        if (s == null || s.length() != 10) return false;
+        for (int i = 0; i < 10; i++) {
+            char c = s.charAt(i);
+            if (i == 4 || i == 7) { if (c != '-') return false; }
+            else if (c < '0' || c > '9') return false;
+        }
+        return true;
     }
     public static String formatTimestamp(java.util.Date input, String format, Locale locale, TimeZone tz) {
         if (format == null || format.isEmpty()) format = "yyyy-MM-dd HH:mm";
