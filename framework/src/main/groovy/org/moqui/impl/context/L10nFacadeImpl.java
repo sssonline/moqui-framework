@@ -376,6 +376,19 @@ public class L10nFacadeImpl implements L10nFacade {
         }
         return true;
     }
+    /** true when a date/time pattern renders a calendar day only: no hour/minute/second/fraction/am-pm/zone letters
+     * outside quoted literals (Aspen #966, display side of isBareDate) */
+    static boolean isDateOnlyFormat(String format) {
+        if (format == null || format.isEmpty()) return false;
+        boolean inQuote = false;
+        for (int i = 0; i < format.length(); i++) {
+            char c = format.charAt(i);
+            if (c == '\'') { inQuote = !inQuote; continue; }
+            if (inQuote) continue;
+            if ("HhKkmsSaZzXx".indexOf(c) >= 0) return false;
+        }
+        return true;
+    }
     public static String formatTimestamp(java.util.Date input, String format, Locale locale, TimeZone tz) {
         if (format == null || format.isEmpty()) format = "yyyy-MM-dd HH:mm";
         return calendarValidator.format(input, format, locale, tz);
@@ -408,13 +421,19 @@ public class L10nFacadeImpl implements L10nFacade {
 
     @Override
     public String format(Object value, String format) {
-        return this.format(value, format, getLocale(), getTimeZone());
+        // pass null rather than getTimeZone() so the 4-arg method can tell "caller named no timezone"
+        return this.format(value, format, getLocale(), null);
     }
     @Override
     public String format(Object value, String format, Locale locale, TimeZone tz) {
         if (value == null) return "";
         if (locale == null) locale = getLocale();
-        if (tz == null) tz = getTimeZone();
+        // Aspen #966: a Timestamp rendered with a date-only pattern is a calendar day, not an instant. Bare dates
+        // are stored at midnight in the server timezone (see parseTimestamp), so render them in that same zone —
+        // otherwise a user west of the server sees the previous day. A caller that names a timezone keeps it, and
+        // a pattern with a time-of-day component still renders in the user's timezone.
+        boolean calendarDay = tz == null && isDateOnlyFormat(format);
+        if (tz == null) tz = calendarDay ? TimeZone.getDefault() : getTimeZone();
         Class<?> valueClass = value.getClass();
         if (valueClass == String.class) return (String) value;
         if (valueClass == Timestamp.class) return formatTimestamp((Timestamp) value, format, locale, tz);

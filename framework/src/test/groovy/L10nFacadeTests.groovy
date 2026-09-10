@@ -163,4 +163,28 @@ class L10nFacadeTests extends Specification {
         cleanup:
         ec.user.setTimeZone(origUserTz)
     }
+
+    def "date-only display renders the stored calendar day for a user west of the server (Aspen #966)"() {
+        setup:
+        TimeZone serverTz = TimeZone.getDefault()
+        // a user two hours WEST of the server: server midnight is 22:00 the previous day for them
+        TimeZone userTz = new SimpleTimeZone(serverTz.getRawOffset() - 2 * 3600 * 1000, "AspenTestMinusTwo")
+        TimeZone origUserTz = ec.user.getTimeZone()
+        ec.user.setTimeZone(userTz)
+        Timestamp serverMidnight = Timestamp.valueOf("2026-09-02 00:00:00")
+
+        expect:
+        // a date-only pattern shows the calendar day the bare date was stored as
+        ec.l10n.format(serverMidnight, "yyyy-MM-dd") == "2026-09-02"
+        ec.l10n.format(serverMidnight, "MM/dd/yyyy") == "09/02/2026"
+        // a pattern with a time-of-day component is an instant and still renders in the user's timezone
+        ec.l10n.format(serverMidnight, "yyyy-MM-dd HH:mm") == "2026-09-01 22:00"
+        // a caller that names a timezone keeps it, date-only pattern or not
+        ec.l10n.format(serverMidnight, "yyyy-MM-dd", null, userTz) == "2026-09-01"
+        // the round trip: what a bare date parses to renders back as the same day for this user
+        ec.l10n.format(ec.l10n.parseTimestamp("2026-09-02", null), "yyyy-MM-dd") == "2026-09-02"
+
+        cleanup:
+        ec.user.setTimeZone(origUserTz)
+    }
 }
