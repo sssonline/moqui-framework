@@ -1104,6 +1104,16 @@ along with this software (see the LICENSE.md file). If not, see
                 real value overrides (e.g. the size feature's default piece count on the Packaging Conversion size popup).
                 Supported in the vuet render macro (plain text-line only, not the auto-complete variant).</xs:documentation></xs:annotation>
         </xs:attribute>
+        <xs:attribute name="submit-on-blur" type="boolean" default="false">
+            <xs:annotation><xs:documentation>If true the owning form (form-single, or the row's own form in a
+                form-list) is submitted when the input loses focus AND its value changed since it gained focus.
+                Nothing happens on an unchanged blur, so tabbing through a grid never fires spurious saves. The
+                submit goes through the normal m-form path (validation, growl, response handling); pair the
+                transition with a default-response of type "none" to save in place without a screen reload, or
+                leave the default response to reload the screen after the save. Supported in the vuet render
+                macro (plain text-line only, not the auto-complete variant). Card #963 (Sort Results
+                quantity).</xs:documentation></xs:annotation>
+        </xs:attribute>
 
         <xs:attribute name="ac-transition" type="xs:string">
             <xs:annotation><xs:documentation>If specified the text-line will have auto-complete added to it with
